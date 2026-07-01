@@ -79,7 +79,7 @@ const STR = {
     no_alerts: "No active alerts", no_alerts_sub: "Conditions are within your thresholds.",
     your_advice: "For you", wind: "Wind", humidity: "Humidity", uv: "UV index", rain: "Rain",
     pressure: "Pressure", visibility: "Visibility", sunrise: "Sunrise", sunset: "Sunset",
-    gust: "gusts", search_place: "Search Kenyan towns", add: "Add", saved: "Saved locations",
+    gust: "gusts", search_place: "Search Kenyan towns", search_loc: "Search location", add: "Add", saved: "Saved locations",
     thresholds: "Alert thresholds", role: "Profile", language: "Language", units: "Units",
     notifs: "Notifications", about: "About Dalili", history: "Alert history", trends_t: "Weather trends",
     history_sub: "Alerts raised for your locations over the last 30 days",
@@ -103,7 +103,7 @@ const STR = {
     no_alerts: "Hakuna tahadhari", no_alerts_sub: "Hali iko ndani ya viwango vyako.",
     your_advice: "Kwa ajili yako", wind: "Upepo", humidity: "Unyevu", uv: "Kiwango cha UV", rain: "Mvua",
     pressure: "Mgandamizo", visibility: "Mwonekano", sunrise: "Mawio", sunset: "Machweo",
-    gust: "vimbunga", search_place: "Tafuta miji ya Kenya", add: "Ongeza", saved: "Maeneo yaliyohifadhiwa",
+    gust: "vimbunga", search_place: "Tafuta miji ya Kenya", search_loc: "Tafuta eneo", add: "Ongeza", saved: "Maeneo yaliyohifadhiwa",
     thresholds: "Viwango vya tahadhari", role: "Wasifu", language: "Lugha", units: "Vipimo",
     notifs: "Arifa", about: "Kuhusu Dalili", history: "Historia ya tahadhari", trends_t: "Mwenendo wa hali ya hewa",
     history_sub: "Tahadhari za maeneo yako katika siku 30 zilizopita",
@@ -463,6 +463,9 @@ function useGoogleMaps(key) {
 
 /* ============================== Subcomponents ============================== */
 
+/* Random helper for procedurally-placed sky effects. */
+const rnd = (a, b) => a + Math.random() * (b - a);
+
 /* Real constellations (approximate star patterns, normalised 0–100). */
 const CONSTELLATIONS = {
   orion: {
@@ -529,7 +532,7 @@ function LocationSearch({ t, onPick, placeholder }) {
 
   return (
     <div className="dl-mapsearch">
-      <Field icon={Search} value={q} placeholder={placeholder || t.search_place}
+      <Field icon={Search} value={q} placeholder={placeholder || t.search_loc}
         onChange={(e) => setQ(e.target.value)} inputMode="search" />
       {searching && <Loader2 size={16} className="dl-spin dl-mapsearch-spin" />}
       {results.length > 0 && (
@@ -546,30 +549,38 @@ function LocationSearch({ t, onPick, placeholder }) {
 }
 
 function LivingSky({ scene, info, cur, units, t, di, data, location }) {
-  const reduce = useRef(false);
-  useEffect(() => { reduce.current = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches; }, []);
   const isNight = scene.includes("night");
   const isRain = scene === "rain" || scene === "drizzle" || scene === "heavy-rain";
   const heavy = scene === "heavy-rain";
   const isThunder = scene === "thunder";
   const showClouds = scene === "cloudy" || scene === "fog" || scene.includes("partly") || isRain || isThunder;
-  // More particles because the card is now roughly a full screen tall.
-  const drops = heavy ? 110 : 66;
+  const isDayClear = (scene.includes("clear") || scene.includes("partly")) && !isNight;
+  const dropCount = heavy ? 110 : scene === "drizzle" ? 46 : 72;
   const Icon = info?.Icon || Cloud;
   const sunrise = data?.daily?.sunrise?.[di];
   const sunset = data?.daily?.sunset?.[di];
 
+  // Randomly generated placements/timing — regenerated whenever the scene changes,
+  // so every visit (and every weather change) looks a little different.
+  const fx = useMemo(() => ({
+    stars: Array.from({ length: 70 }, () => ({ left: rnd(0, 100), top: rnd(0, 94), delay: rnd(0, 5), dur: rnd(2.4, 5.5), size: rnd(1.4, 3) })),
+    drops: Array.from({ length: dropCount }, () => ({ left: rnd(-2, 100), delay: rnd(0, 2), dur: rnd(heavy ? 0.45 : 0.6, heavy ? 0.7 : 0.95), len: rnd(12, 22) })),
+    birds: Array.from({ length: 6 }, () => ({ top: rnd(6, 40), dur: rnd(24, 46), delay: rnd(0, 30), w: rnd(15, 30), dip: rnd(-34, -8), flap: rnd(0.4, 0.7) })),
+    shooters: Array.from({ length: 5 }, () => ({ top: rnd(3, 46), left: rnd(15, 82), ang: rnd(16, 40), dist: rnd(340, 620), dur: rnd(6, 12), delay: rnd(0, 14) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [scene, heavy, dropCount]);
+
   return (
     <div className="dl-sky" aria-hidden="false">
       <div className="dl-skyfx" aria-hidden="true">
-        {(scene.includes("clear") || scene.includes("partly")) && !isNight && (
+        {isDayClear && (
           <>
             <div className="dl-sun"><span className="dl-sun-glow" /><span className="dl-sun-core" /></div>
             {/* Birds gliding across the day sky */}
             <div className="dl-birds">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className={`dl-bird b${i}`}>
-                  <svg viewBox="0 0 24 10"><path d="M1 8 Q6 1 12 7 Q18 1 23 8" /></svg>
+              {fx.birds.map((b, i) => (
+                <div key={i} className="dl-bird" style={{ top: `${b.top}%`, width: `${b.w}px`, animationDuration: `${b.dur}s`, animationDelay: `${b.delay}s`, "--dip": `${b.dip}px` }}>
+                  <svg viewBox="0 0 24 10" style={{ animationDuration: `${b.flap}s` }}><path d="M1 8 Q6 1 12 7 Q18 1 23 8" /></svg>
                 </div>
               ))}
             </div>
@@ -579,19 +590,21 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
           <>
             <div className="dl-moon" />
             <div className="dl-stars">
-              {Array.from({ length: 54 }).map((_, i) => (
-                <span key={i} style={{ left: `${(i * 37) % 100}%`, top: `${(i * 23) % 92}%`, animationDelay: `${(i % 7) * 0.4}s` }} />
+              {fx.stars.map((s, i) => (
+                <span key={i} style={{ left: `${s.left}%`, top: `${s.top}%`, width: `${s.size}px`, height: `${s.size}px`, animationDelay: `${s.delay}s`, animationDuration: `${s.dur}s` }} />
               ))}
             </div>
             {/* Real constellations */}
             <div className="dl-constels">
-              <Constellation data={CONSTELLATIONS.orion} className="c-orion" style={{ top: "12%", right: "9%", width: 132, height: 132 }} />
-              <Constellation data={CONSTELLATIONS.crux} className="c-crux" style={{ top: "42%", left: "13%", width: 72, height: 96 }} />
-              <Constellation data={CONSTELLATIONS.dipper} className="c-dipper" style={{ top: "16%", left: "34%", width: 156, height: 96 }} />
+              <Constellation data={CONSTELLATIONS.orion} style={{ top: "12%", right: "9%", width: 132, height: 132 }} />
+              <Constellation data={CONSTELLATIONS.crux} style={{ top: "42%", left: "13%", width: 72, height: 96 }} />
+              <Constellation data={CONSTELLATIONS.dipper} style={{ top: "16%", left: "34%", width: 156, height: 96 }} />
             </div>
-            {/* Shooting stars */}
+            {/* Shooting stars — random start, streak head leads the motion */}
             <div className="dl-shooters">
-              <span className="dl-sh dl-sh1" /><span className="dl-sh dl-sh2" /><span className="dl-sh dl-sh3" />
+              {fx.shooters.map((s, i) => (
+                <span key={i} className="dl-sh" style={{ top: `${s.top}%`, left: `${s.left}%`, "--ang": `${s.ang}deg`, "--dist": `${s.dist}px`, animationDuration: `${s.dur}s`, animationDelay: `${s.delay}s` }} />
+              ))}
             </div>
           </>
         )}
@@ -603,8 +616,8 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
         )}
         {(isRain || isThunder) && (
           <div className="dl-rain">
-            {Array.from({ length: drops }).map((_, i) => (
-              <span key={i} style={{ left: `${(i * 53) % 100}%`, animationDelay: `${(i % 11) * 0.13}s`, animationDuration: `${heavy ? 0.55 : 0.8}s` }} />
+            {fx.drops.map((d, i) => (
+              <span key={i} style={{ left: `${d.left}%`, height: `${d.len}px`, animationDelay: `${d.delay}s`, animationDuration: `${d.dur}s` }} />
             ))}
           </div>
         )}
@@ -1920,18 +1933,14 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-flash{position:absolute;inset:0;background:rgba(255,255,255,.85);opacity:0;animation:flash 7s linear infinite}
 @keyframes flash{0%,93%,100%{opacity:0}94%{opacity:.7}95%{opacity:.1}96%{opacity:.5}97%{opacity:0}}
 
-/* Birds gliding across the day sky (silhouettes with flapping wings) */
+/* Birds gliding across the day sky (silhouettes with flapping wings).
+   Per-bird top/width/duration/delay/dip come from inline random styles. */
 .dl-birds{position:absolute;inset:0}
-.dl-bird{position:absolute;width:24px;height:10px;opacity:.5;animation:birdfly linear infinite}
-.dl-bird svg{width:100%;height:100%;overflow:visible}
-.dl-bird svg path{fill:none;stroke:rgba(11,37,64,.5);stroke-width:1.6;stroke-linecap:round;transform-origin:50% 50%;transform-box:fill-box;animation:flap .5s ease-in-out infinite}
-.dl-bird.b0{top:16%;width:24px;animation-duration:28s;animation-delay:0s}
-.dl-bird.b1{top:23%;width:18px;animation-duration:34s;animation-delay:5s}
-.dl-bird.b2{top:12%;width:28px;animation-duration:40s;animation-delay:11s}
-.dl-bird.b3{top:30%;width:16px;animation-duration:31s;animation-delay:18s}
-.dl-bird.b4{top:20%;width:20px;animation-duration:37s;animation-delay:24s}
-@keyframes birdfly{0%{transform:translate(-10vw,0)}50%{transform:translate(52vw,-22px)}100%{transform:translate(114vw,6px)}}
-@keyframes flap{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.45)}}
+.dl-bird{position:absolute;height:auto;opacity:.5;animation-name:birdfly;animation-timing-function:linear;animation-iteration-count:infinite}
+.dl-bird svg{width:100%;height:100%;overflow:visible;transform-origin:50% 50%;animation-name:flap;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.dl-bird svg path{fill:none;stroke:rgba(11,37,64,.5);stroke-width:1.6;stroke-linecap:round}
+@keyframes birdfly{0%{transform:translate(-12vw,0)}50%{transform:translate(52vw,var(--dip,-20px))}100%{transform:translate(116vw,8px)}}
+@keyframes flap{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.5)}}
 
 /* Real constellations (night) */
 .dl-constels{position:absolute;inset:0;opacity:.9}
@@ -1939,22 +1948,21 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-constel line{stroke:rgba(255,255,255,.3);stroke-width:.45}
 .dl-constel circle{fill:#fff;filter:drop-shadow(0 0 3px rgba(255,255,255,.9));animation:twinkle 4.5s ease-in-out infinite}
 
-/* Shooting stars (night) */
+/* Shooting stars (night) — random start; bright head leads down-right, tail behind.
+   Per-star angle/distance/duration/delay come from inline random styles. */
 .dl-shooters{position:absolute;inset:0;overflow:hidden}
-.dl-sh{position:absolute;height:2px;width:150px;border-radius:2px;opacity:0;
-  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.95));
-  filter:drop-shadow(0 0 6px rgba(255,255,255,.7))}
-.dl-sh1{top:12%;left:58%;animation:shoot 9s ease-in infinite 2s}
-.dl-sh2{top:26%;left:74%;animation:shoot 12s ease-in infinite 7s}
-.dl-sh3{top:8%;left:44%;animation:shoot 15s ease-in infinite 12s}
+.dl-sh{position:absolute;height:2px;width:150px;border-radius:2px;opacity:0;transform-origin:left center;
+  background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.95) 100%);
+  filter:drop-shadow(0 0 6px rgba(255,255,255,.7));
+  animation-name:shoot;animation-timing-function:ease-in;animation-iteration-count:infinite}
 @keyframes shoot{
-  0%{opacity:0;transform:rotate(28deg) translateX(0)}
-  4%{opacity:1}
-  14%{opacity:0;transform:rotate(28deg) translateX(-300px)}
-  100%{opacity:0;transform:rotate(28deg) translateX(-300px)}
+  0%{opacity:0;transform:rotate(var(--ang,25deg)) translateX(0) scaleX(.3)}
+  4%{opacity:1;transform:rotate(var(--ang,25deg)) translateX(0) scaleX(1)}
+  18%{opacity:0;transform:rotate(var(--ang,25deg)) translateX(var(--dist,460px)) scaleX(1)}
+  100%{opacity:0;transform:rotate(var(--ang,25deg)) translateX(var(--dist,460px)) scaleX(1)}
 }
 
-@media (prefers-reduced-motion: reduce){.dl-cloud,.dl-rain span,.dl-flash,.dl-sun-glow,.dl-stars span,.dl-bird,.dl-bird svg path,.dl-sh,.dl-constel circle{animation:none!important}.dl-sh{opacity:0}}
+@media (prefers-reduced-motion: reduce){.dl-cloud,.dl-rain span,.dl-flash,.dl-sun-glow,.dl-stars span,.dl-bird,.dl-bird svg,.dl-sh,.dl-constel circle{animation:none!important}.dl-sh{opacity:0}}
 
 /* ---------- Cards ---------- */
 .dl-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:clamp(14px,2.4vw,20px);box-shadow:var(--shadow)}
