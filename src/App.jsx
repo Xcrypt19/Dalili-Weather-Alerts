@@ -463,6 +463,88 @@ function useGoogleMaps(key) {
 
 /* ============================== Subcomponents ============================== */
 
+/* Real constellations (approximate star patterns, normalised 0–100). */
+const CONSTELLATIONS = {
+  orion: {
+    stars: [
+      { x: 70, y: 18, r: 1.8 }, { x: 38, y: 22, r: 1.6 }, // Betelgeuse, Bellatrix
+      { x: 58, y: 50, r: 1.5 }, { x: 50, y: 52, r: 1.6 }, { x: 42, y: 54, r: 1.5 }, // belt
+      { x: 64, y: 82, r: 1.6 }, { x: 36, y: 84, r: 1.9 }, // Saiph, Rigel
+    ],
+    edges: [[0, 1], [1, 4], [0, 2], [2, 3], [3, 4], [2, 5], [4, 6], [1, 6], [0, 5]],
+  },
+  crux: { // Southern Cross — visible from Kenya
+    stars: [{ x: 50, y: 6, r: 1.7 }, { x: 50, y: 94, r: 1.9 }, { x: 16, y: 52, r: 1.4 }, { x: 84, y: 44, r: 1.5 }],
+    edges: [[0, 1], [2, 3]],
+  },
+  dipper: { // Big Dipper (Ursa Major)
+    stars: [
+      { x: 8, y: 62 }, { x: 26, y: 56 }, { x: 44, y: 60 }, { x: 60, y: 52 },
+      { x: 62, y: 30 }, { x: 44, y: 26 }, { x: 30, y: 36 },
+    ],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 3]],
+  },
+};
+
+function Constellation({ data, className, style }) {
+  return (
+    <svg className={`dl-constel ${className || ""}`} viewBox="0 0 100 100" style={style} aria-hidden="true">
+      {data.edges.map(([a, b], i) => (
+        <line key={i} x1={data.stars[a].x} y1={data.stars[a].y} x2={data.stars[b].x} y2={data.stars[b].y} />
+      ))}
+      {data.stars.map((s, i) => (
+        <circle key={i} cx={s.x} cy={s.y} r={s.r || 1.3} style={{ animationDelay: `${(i % 5) * 0.6}s` }} />
+      ))}
+    </svg>
+  );
+}
+
+/* Reusable location search (worldwide, keyless via Open-Meteo geocoding). */
+function LocationSearch({ t, onPick, placeholder }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (q.trim().length < 2) { setResults([]); return undefined; }
+    let alive = true;
+    setSearching(true);
+    const id = setTimeout(async () => {
+      try {
+        const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=en&format=json`);
+        const j = await r.json();
+        const list = (j.results || []).map((x) => ({
+          id: `geo-${x.id}`, name: x.name,
+          region: [x.admin1, x.country].filter(Boolean).join(", ") || "—",
+          lat: x.latitude, lon: x.longitude,
+        }));
+        if (alive) setResults(list);
+      } catch { if (alive) setResults([]); }
+      finally { if (alive) setSearching(false); }
+    }, 300);
+    return () => { alive = false; clearTimeout(id); };
+  }, [q]);
+
+  const pick = (loc) => { onPick(loc); setResults([]); setQ(loc.name); };
+
+  return (
+    <div className="dl-mapsearch">
+      <Field icon={Search} value={q} placeholder={placeholder || t.search_place}
+        onChange={(e) => setQ(e.target.value)} inputMode="search" />
+      {searching && <Loader2 size={16} className="dl-spin dl-mapsearch-spin" />}
+      {results.length > 0 && (
+        <div className="dl-search-res dl-mapsearch-res">
+          {results.map((r) => (
+            <button key={r.id} className="dl-search-row" onClick={() => pick(r)}>
+              <MapPin size={16} /> <span>{r.name}</span><small>{r.region}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LivingSky({ scene, info, cur, units, t, di, data, location }) {
   const reduce = useRef(false);
   useEffect(() => { reduce.current = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches; }, []);
@@ -481,7 +563,17 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
     <div className="dl-sky" aria-hidden="false">
       <div className="dl-skyfx" aria-hidden="true">
         {(scene.includes("clear") || scene.includes("partly")) && !isNight && (
-          <div className="dl-sun"><span className="dl-sun-glow" /><span className="dl-sun-core" /></div>
+          <>
+            <div className="dl-sun"><span className="dl-sun-glow" /><span className="dl-sun-core" /></div>
+            {/* Birds gliding across the day sky */}
+            <div className="dl-birds">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className={`dl-bird b${i}`}>
+                  <svg viewBox="0 0 24 10"><path d="M1 8 Q6 1 12 7 Q18 1 23 8" /></svg>
+                </div>
+              ))}
+            </div>
+          </>
         )}
         {isNight && (
           <>
@@ -490,6 +582,16 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
               {Array.from({ length: 54 }).map((_, i) => (
                 <span key={i} style={{ left: `${(i * 37) % 100}%`, top: `${(i * 23) % 92}%`, animationDelay: `${(i % 7) * 0.4}s` }} />
               ))}
+            </div>
+            {/* Real constellations */}
+            <div className="dl-constels">
+              <Constellation data={CONSTELLATIONS.orion} className="c-orion" style={{ top: "12%", right: "9%", width: 132, height: 132 }} />
+              <Constellation data={CONSTELLATIONS.crux} className="c-crux" style={{ top: "42%", left: "13%", width: 72, height: 96 }} />
+              <Constellation data={CONSTELLATIONS.dipper} className="c-dipper" style={{ top: "16%", left: "34%", width: 156, height: 96 }} />
+            </div>
+            {/* Shooting stars */}
+            <div className="dl-shooters">
+              <span className="dl-sh dl-sh1" /><span className="dl-sh dl-sh2" /><span className="dl-sh dl-sh3" />
             </div>
           </>
         )}
@@ -730,57 +832,45 @@ function TrendsView({ data, units, t, lang }) {
 
 /* Interactive map via Leaflet + OpenStreetMap — free, no API key, no billing.
    Kept the name/props stable so the rest of the app is unchanged. */
-function GoogleMapPanel({ locations, current, onSelect, units, conditions }) {
+function GoogleMapPanel({ current, units, conditions }) {
   const ref = useRef(null);
   const mapRef = useRef(null);
   const groupRef = useRef(null);
-  const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
-
-  const all = useMemo(() => {
-    const arr = [...locations];
-    if (current && !arr.find((l) => l.id === current.id)) arr.unshift(current);
-    return arr;
-  }, [locations, current]);
 
   // Create the map once.
   useEffect(() => {
     if (!ref.current) return undefined;
     const map = L.map(ref.current, { zoomControl: true, attributionControl: true })
-      .setView([current?.lat ?? -0.5, current?.lon ?? 37.5], 6);
+      .setView([current?.lat ?? -0.5, current?.lon ?? 37.5], current ? 10 : 6);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
     groupRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
-    // Recompute size once the card has laid out (Leaflet needs a real height).
     setTimeout(() => map.invalidateSize(), 200);
     return () => { map.remove(); mapRef.current = null; groupRef.current = null; };
   }, []);
 
-  // (Re)draw markers whenever locations/current/conditions change.
+  // Show ONLY the current location, and smoothly zoom into it on change.
   useEffect(() => {
     const map = mapRef.current, group = groupRef.current;
     if (!map || !group) return;
     group.clearLayers();
-    all.forEach((l) => {
-      const isCur = current && l.id === current.id;
-      const c = conditions[l.id];
+    if (current) {
+      const c = conditions[current.id];
       const temp = c ? fTemp(c.temp, units) : "";
-      const label = `${l.name}${temp ? ` · ${temp}` : ""}`;
+      const label = `${current.name}${temp ? ` · ${temp}` : ""}`;
       const icon = L.divIcon({
         className: "dl-lpin-wrap",
-        html: `<span class="dl-lpin-dot ${isCur ? "cur" : ""}"></span><span class="dl-lpin-label">${label}</span>`,
-        iconSize: [0, 0], iconAnchor: [7, 7],
+        html: `<span class="dl-lpin-dot cur"></span><span class="dl-lpin-label">${label}</span>`,
+        iconSize: [0, 0], iconAnchor: [9, 9],
       });
-      L.marker([l.lat, l.lon], { icon, title: l.name })
-        .addTo(group)
-        .on("click", () => onSelectRef.current?.(l));
-    });
-    if (current) map.panTo([current.lat, current.lon]);
+      L.marker([current.lat, current.lon], { icon, title: current.name }).addTo(group);
+      map.flyTo([current.lat, current.lon], 11, { duration: 1.1 });
+    }
     setTimeout(() => map.invalidateSize(), 100);
-  }, [all, current, conditions, units]);
+  }, [current, conditions, units]);
 
   return <div ref={ref} className="dl-gmap" />;
 }
@@ -832,53 +922,13 @@ function KenyaMapSVG({ locations, current, conditions, units, onSelect, reason }
   );
 }
 
-function MapView({ apiKey, mapLocations, saved, current, conditions, units, t, lang, onSelect, onFocus }) {
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-
-  // Manual location search — keyless Open-Meteo geocoding (worldwide).
-  useEffect(() => {
-    if (q.trim().length < 2) { setResults([]); return undefined; }
-    let alive = true;
-    setSearching(true);
-    const id = setTimeout(async () => {
-      try {
-        const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=en&format=json`);
-        const j = await r.json();
-        const list = (j.results || []).map((x) => ({
-          id: `geo-${x.id}`, name: x.name,
-          region: [x.admin1, x.country].filter(Boolean).join(", ") || "—",
-          lat: x.latitude, lon: x.longitude,
-        }));
-        if (alive) setResults(list);
-      } catch { if (alive) setResults([]); }
-      finally { if (alive) setSearching(false); }
-    }, 300);
-    return () => { alive = false; clearTimeout(id); };
-  }, [q]);
-
-  const pick = (loc) => { onFocus(loc); setResults([]); setQ(loc.name); };
-
+function MapView({ saved, current, conditions, units, t, lang, onSelect, onFocus }) {
   return (
     <div className="dl-stack">
       <div className="dl-card dl-map-card">
         <div className="dl-card-head"><MapIcon size={20} /> <h3>{t.map_t}</h3></div>
-        <div className="dl-mapsearch">
-          <Field icon={Search} value={q} placeholder={t.search_place}
-            onChange={(e) => setQ(e.target.value)} inputMode="search" />
-          {searching && <Loader2 size={16} className="dl-spin dl-mapsearch-spin" />}
-          {results.length > 0 && (
-            <div className="dl-search-res dl-mapsearch-res">
-              {results.map((r) => (
-                <button key={r.id} className="dl-search-row" onClick={() => pick(r)}>
-                  <MapPin size={16} /> <span>{r.name}</span><small>{r.region}</small>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <GoogleMapPanel apiKey={apiKey} locations={mapLocations} current={current} conditions={conditions} units={units} onSelect={onFocus} />
+        <LocationSearch t={t} onPick={onFocus} />
+        <GoogleMapPanel current={current} conditions={conditions} units={units} />
       </div>
       <div className="dl-card">
         <div className="dl-card-head"><MapPin size={20} /> <h3>{t.saved}</h3></div>
@@ -1590,6 +1640,8 @@ export default function App() {
             <>
               {view === "dashboard" && (
                 <div className="dl-stack">
+                  {/* Location search sits above the weather window */}
+                  <LocationSearch t={t} onPick={focusLocation} />
                   <div className="dl-hero" style={{ background: sceneStyle.grad, color: sceneStyle.text }}>
                     <LivingSky scene={scene} info={info} cur={cur} units={units} t={t} di={di} data={data} location={location} />
                   </div>
@@ -1684,7 +1736,7 @@ export default function App() {
               )}
 
               {view === "map" && (
-                <MapView apiKey={me.mapsKey || ENV_MAPS_KEY} mapLocations={mapLocations} saved={savedLocs} current={location} conditions={conditions} units={units} t={t} lang={lang} onSelect={selectLocation} onFocus={focusLocation} />
+                <MapView saved={savedLocs} current={location} conditions={conditions} units={units} t={t} lang={lang} onSelect={selectLocation} onFocus={focusLocation} />
               )}
 
               {view === "advice" && (
@@ -1848,23 +1900,61 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-clouds{position:absolute;inset:0}
 .dl-cloud{position:absolute;background:rgba(255,255,255,.9);border-radius:100px;filter:blur(.4px);box-shadow:0 8px 24px rgba(11,37,64,.08)}
 .dl-cloud::before,.dl-cloud::after{content:"";position:absolute;background:inherit;border-radius:50%}
-.dl-cloud.c1{width:120px;height:34px;top:22%;left:-130px;animation:drift 30s linear infinite}
+/* Clouds drift horizontally (translate) AND bob vertically (transform) for a
+   floatier feel; the two properties stack without conflicting. */
+.dl-cloud.c1{width:120px;height:34px;top:20%;translate:-130px 0;animation:cloudmove 34s linear infinite, cloudbob 7s ease-in-out infinite}
 .dl-cloud.c1::before{width:54px;height:54px;top:-22px;left:20px}.dl-cloud.c1::after{width:42px;height:42px;top:-15px;left:62px}
-.dl-cloud.c2{width:90px;height:26px;top:46%;left:-100px;opacity:.75;animation:drift 44s linear infinite 6s}
+.dl-cloud.c2{width:90px;height:26px;top:44%;translate:-100px 0;opacity:.78;animation:cloudmove 48s linear infinite 6s, cloudbob 9s ease-in-out infinite 1s}
 .dl-cloud.c2::before{width:40px;height:40px;top:-16px;left:16px}.dl-cloud.c2::after{width:32px;height:32px;top:-11px;left:46px}
-.dl-cloud.c3{width:70px;height:20px;top:14%;left:-80px;opacity:.6;animation:drift 38s linear infinite 14s}
+.dl-cloud.c3{width:70px;height:20px;top:12%;translate:-80px 0;opacity:.62;animation:cloudmove 42s linear infinite 14s, cloudbob 8s ease-in-out infinite 2s}
 .dl-cloud.c3::before{width:30px;height:30px;top:-12px;left:12px}.dl-cloud.c3::after{width:26px;height:26px;top:-9px;left:34px}
-.dl-cloud.c4{width:150px;height:42px;top:64%;left:-160px;opacity:.7;animation:drift 52s linear infinite 3s}
+.dl-cloud.c4{width:150px;height:42px;top:62%;translate:-160px 0;opacity:.72;animation:cloudmove 58s linear infinite 3s, cloudbob 11s ease-in-out infinite}
 .dl-cloud.c4::before{width:66px;height:66px;top:-28px;left:26px}.dl-cloud.c4::after{width:50px;height:50px;top:-18px;left:78px}
-.dl-cloud.c5{width:100px;height:28px;top:80%;left:-120px;opacity:.55;animation:drift 46s linear infinite 20s}
+.dl-cloud.c5{width:100px;height:28px;top:80%;translate:-120px 0;opacity:.55;animation:cloudmove 50s linear infinite 20s, cloudbob 10s ease-in-out infinite 3s}
 .dl-cloud.c5::before{width:44px;height:44px;top:-18px;left:18px}.dl-cloud.c5::after{width:34px;height:34px;top:-12px;left:52px}
-@keyframes drift{from{transform:translateX(0)}to{transform:translateX(calc(100vw + 240px))}}
+@keyframes cloudmove{from{translate:-180px 0}to{translate:calc(100vw + 260px) 0}}
+@keyframes cloudbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
 .dl-rain{position:absolute;inset:0}
 .dl-rain span{position:absolute;top:-14%;width:2px;height:16px;background:linear-gradient(transparent,rgba(255,255,255,.75));border-radius:2px;animation:fall linear infinite}
 @keyframes fall{from{transform:translateY(-20px)}to{transform:translateY(115%)}}
 .dl-flash{position:absolute;inset:0;background:rgba(255,255,255,.85);opacity:0;animation:flash 7s linear infinite}
 @keyframes flash{0%,93%,100%{opacity:0}94%{opacity:.7}95%{opacity:.1}96%{opacity:.5}97%{opacity:0}}
-@media (prefers-reduced-motion: reduce){.dl-cloud,.dl-rain span,.dl-flash,.dl-sun-glow,.dl-stars span{animation:none!important}}
+
+/* Birds gliding across the day sky (silhouettes with flapping wings) */
+.dl-birds{position:absolute;inset:0}
+.dl-bird{position:absolute;width:24px;height:10px;opacity:.5;animation:birdfly linear infinite}
+.dl-bird svg{width:100%;height:100%;overflow:visible}
+.dl-bird svg path{fill:none;stroke:rgba(11,37,64,.5);stroke-width:1.6;stroke-linecap:round;transform-origin:50% 50%;transform-box:fill-box;animation:flap .5s ease-in-out infinite}
+.dl-bird.b0{top:16%;width:24px;animation-duration:28s;animation-delay:0s}
+.dl-bird.b1{top:23%;width:18px;animation-duration:34s;animation-delay:5s}
+.dl-bird.b2{top:12%;width:28px;animation-duration:40s;animation-delay:11s}
+.dl-bird.b3{top:30%;width:16px;animation-duration:31s;animation-delay:18s}
+.dl-bird.b4{top:20%;width:20px;animation-duration:37s;animation-delay:24s}
+@keyframes birdfly{0%{transform:translate(-10vw,0)}50%{transform:translate(52vw,-22px)}100%{transform:translate(114vw,6px)}}
+@keyframes flap{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.45)}}
+
+/* Real constellations (night) */
+.dl-constels{position:absolute;inset:0;opacity:.9}
+.dl-constel{position:absolute;overflow:visible}
+.dl-constel line{stroke:rgba(255,255,255,.3);stroke-width:.45}
+.dl-constel circle{fill:#fff;filter:drop-shadow(0 0 3px rgba(255,255,255,.9));animation:twinkle 4.5s ease-in-out infinite}
+
+/* Shooting stars (night) */
+.dl-shooters{position:absolute;inset:0;overflow:hidden}
+.dl-sh{position:absolute;height:2px;width:150px;border-radius:2px;opacity:0;
+  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.95));
+  filter:drop-shadow(0 0 6px rgba(255,255,255,.7))}
+.dl-sh1{top:12%;left:58%;animation:shoot 9s ease-in infinite 2s}
+.dl-sh2{top:26%;left:74%;animation:shoot 12s ease-in infinite 7s}
+.dl-sh3{top:8%;left:44%;animation:shoot 15s ease-in infinite 12s}
+@keyframes shoot{
+  0%{opacity:0;transform:rotate(28deg) translateX(0)}
+  4%{opacity:1}
+  14%{opacity:0;transform:rotate(28deg) translateX(-300px)}
+  100%{opacity:0;transform:rotate(28deg) translateX(-300px)}
+}
+
+@media (prefers-reduced-motion: reduce){.dl-cloud,.dl-rain span,.dl-flash,.dl-sun-glow,.dl-stars span,.dl-bird,.dl-bird svg path,.dl-sh,.dl-constel circle{animation:none!important}.dl-sh{opacity:0}}
 
 /* ---------- Cards ---------- */
 .dl-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:clamp(14px,2.4vw,20px);box-shadow:var(--shadow)}
