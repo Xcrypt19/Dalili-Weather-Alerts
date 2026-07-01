@@ -130,16 +130,16 @@ function weatherInfo(code, isDay = true) {
     case code === 0:                 return C("Clear sky", "Anga safi", isDay ? "clear-day" : "clear-night", isDay ? Sun : Moon);
     case code === 1:                 return C("Mainly clear", "Karibu safi", isDay ? "clear-day" : "clear-night", isDay ? Sun : Moon);
     case code === 2:                 return C("Partly cloudy", "Mawingu kiasi", isDay ? "partly-day" : "partly-night", isDay ? CloudSun : Cloud);
-    case code === 3:                 return C("Overcast", "Mawingu mengi", "cloudy", Cloud);
-    case code === 45 || code === 48: return C("Fog", "Ukungu", "fog", CloudFog);
-    case code >= 51 && code <= 57:   return C("Drizzle", "Manyunyu", "drizzle", CloudDrizzle);
-    case code >= 61 && code <= 65:   return C("Rain", "Mvua", code >= 65 ? "heavy-rain" : "rain", CloudRain);
-    case code === 66 || code === 67: return C("Freezing rain", "Mvua ya barafu", "rain", CloudRain);
-    case code >= 71 && code <= 77:   return C("Snow", "Theluji", "snow", CloudSnow);
-    case code >= 80 && code <= 82:   return C("Rain showers", "Manyunyu ya mvua", code === 82 ? "heavy-rain" : "rain", CloudRain);
-    case code === 85 || code === 86: return C("Snow showers", "Theluji", "snow", CloudSnow);
-    case code >= 95:                 return C("Thunderstorm", "Dhoruba ya radi", "thunder", CloudLightning);
-    default:                         return C("Unknown", "Haijulikani", "cloudy", Cloud);
+    case code === 3:                 return C("Overcast", "Mawingu mengi", isDay ? "cloudy" : "cloudy-night", Cloud);
+    case code === 45 || code === 48: return C("Fog", "Ukungu", isDay ? "fog" : "fog-night", CloudFog);
+    case code >= 51 && code <= 57:   return C("Drizzle", "Manyunyu", isDay ? "drizzle" : "drizzle-night", CloudDrizzle);
+    case code >= 61 && code <= 65:   return C("Rain", "Mvua", (code >= 65 ? "heavy-rain" : "rain") + (isDay ? "" : "-night"), CloudRain);
+    case code === 66 || code === 67: return C("Freezing rain", "Mvua ya barafu", isDay ? "rain" : "rain-night", CloudRain);
+    case code >= 71 && code <= 77:   return C("Snow", "Theluji", isDay ? "snow" : "snow-night", CloudSnow);
+    case code >= 80 && code <= 82:   return C("Rain showers", "Manyunyu ya mvua", (code === 82 ? "heavy-rain" : "rain") + (isDay ? "" : "-night"), CloudRain);
+    case code === 85 || code === 86: return C("Snow showers", "Theluji", isDay ? "snow" : "snow-night", CloudSnow);
+    case code >= 95:                 return C("Thunderstorm", "Dhoruba ya radi", isDay ? "thunder" : "thunder-night", CloudLightning);
+    default:                         return C("Unknown", "Haijulikani", isDay ? "cloudy" : "cloudy-night", Cloud);
   }
 }
 
@@ -156,6 +156,14 @@ const SCENES = {
   "heavy-rain":  { grad: "linear-gradient(165deg,#243f5c 0%,#36527040 58%,#4a6685 100%)", text: "#eef6ff", soft: true },
   "snow":        { grad: "linear-gradient(165deg,#6E8398 0%,#93A6B8 58%,#D2DCE6 100%)", text: "#0b2540", soft: true },
   "thunder":     { grad: "linear-gradient(165deg,#1d2c47 0%,#2c3f60 58%,#3e5374 100%)", text: "#eef6ff", soft: true },
+  // Night variants — clearly darker so night is obvious regardless of weather.
+  "cloudy-night":     { grad: "linear-gradient(170deg,#141d2b 0%,#22303f 55%,#33475b 100%)", text: "#eef6ff", soft: true },
+  "fog-night":        { grad: "linear-gradient(170deg,#1a2330 0%,#2a3644 55%,#3b4757 100%)", text: "#eef6ff", soft: true },
+  "drizzle-night":    { grad: "linear-gradient(170deg,#101b2b 0%,#1c2c40 58%,#2b3d54 100%)", text: "#eef6ff", soft: true },
+  "rain-night":       { grad: "linear-gradient(170deg,#0e1826 0%,#18293c 58%,#26384e 100%)", text: "#eef6ff", soft: true },
+  "heavy-rain-night": { grad: "linear-gradient(170deg,#0a1320 0%,#131f2e 58%,#1e2c3c 100%)", text: "#eef6ff", soft: true },
+  "snow-night":       { grad: "linear-gradient(170deg,#1c2430 0%,#2c3644 58%,#44505f 100%)", text: "#eef6ff", soft: true },
+  "thunder-night":    { grad: "linear-gradient(170deg,#0c1424 0%,#161f36 58%,#232f49 100%)", text: "#eef6ff", soft: true },
 };
 
 /* -------------------------------- Helpers --------------------------------- */
@@ -565,11 +573,13 @@ const STAR_COLORS = ["#ffffff", "#ffffff", "#eef4ff", "#d6e4ff", "#c2d6ff", "#ff
 
 function LivingSky({ scene, info, cur, units, t, di, data, location }) {
   const isNight = scene.includes("night");
-  const isRain = scene === "rain" || scene === "drizzle" || scene === "heavy-rain";
-  const drizzle = scene === "drizzle";
-  const heavy = scene === "heavy-rain";
-  const isThunder = scene === "thunder";
-  const showClouds = scene === "cloudy" || scene === "fog" || scene.includes("partly") || isRain || isThunder;
+  const isRain = scene.startsWith("rain") || scene.startsWith("drizzle") || scene.startsWith("heavy-rain");
+  const drizzle = scene.startsWith("drizzle");
+  const heavy = scene.startsWith("heavy-rain");
+  const isThunder = scene.startsWith("thunder");
+  const showClouds = scene.startsWith("cloudy") || scene.startsWith("fog") || scene.includes("partly") || isRain || isThunder;
+  // Stars/moon/constellations only when the sky is actually clear at night.
+  const isClearNight = isNight && (scene.includes("clear") || scene.includes("partly"));
   const isDayClear = (scene.includes("clear") || scene.includes("partly")) && !isNight;
   const Icon = info?.Icon || Cloud;
   const sunrise = data?.daily?.sunrise?.[di];
@@ -624,7 +634,7 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
             </div>
           </>
         )}
-        {isNight && (
+        {isClearNight && (
           <>
             <div className="dl-milkyway" />
             <div className="dl-moon"><span className="dl-moon-glow" /></div>
@@ -648,9 +658,9 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
                 <span key={i} className="dl-sh" style={{ top: `${s.top}%`, left: `${s.left}%`, "--ang": `${s.ang}deg`, "--dist": `${s.dist}px`, animationDuration: `${s.dur}s`, animationDelay: `${s.delay}s` }} />
               ))}
             </div>
-            <div className="dl-atmos" />
           </>
         )}
+        {isNight && <div className="dl-atmos" />}
         {cloudCount > 0 && (
           <div className="dl-clouds" style={{ "--cloud-col": cloudCol }}>
             {Array.from({ length: cloudCount }).map((_, i) => (
@@ -2070,17 +2080,17 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-sky-feels{font-size:14.5px;opacity:.85;margin-top:4px;font-weight:500}
 /* Sunrise / sunset — labelled + colour-coded */
 .dl-sky-rise{display:flex;flex-wrap:wrap;gap:12px}
+/* Dark translucent pill = consistent, legible on any sky (light or dark),
+   with a harmonious warm pair: gold sunrise, coral sunset, white time. */
 .dl-rise{display:flex;align-items:center;gap:12px;padding:12px 18px;border-radius:16px;
-  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.32);backdrop-filter:blur(6px);min-width:150px}
+  background:rgba(10,22,40,.36);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);min-width:152px}
 .dl-rise-text{display:flex;flex-direction:column;line-height:1.1}
-.dl-rise-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.95}
-.dl-rise b{font-family:var(--mono);font-size:20px;font-weight:600;margin-top:2px}
-.dl-rise.sunrise{background:linear-gradient(120deg,rgba(253,184,19,.34),rgba(255,214,107,.14));border-color:rgba(253,184,19,.55)}
-.dl-rise.sunrise>svg{color:#FFC24B}
-.dl-rise.sunrise .dl-rise-label{color:#7a5200}
-.dl-rise.sunset{background:linear-gradient(120deg,rgba(244,114,94,.34),rgba(150,86,196,.18));border-color:rgba(244,114,94,.55)}
-.dl-rise.sunset>svg{color:#FF7E4B}
-.dl-rise.sunset .dl-rise-label{color:#7a2f12}
+.dl-rise-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+.dl-rise b{font-family:var(--mono);font-size:20px;font-weight:600;margin-top:2px;color:#ffffff}
+.dl-rise.sunrise{border-color:rgba(255,201,120,.45)}
+.dl-rise.sunrise>svg,.dl-rise.sunrise .dl-rise-label{color:#FFCB7A}
+.dl-rise.sunset{border-color:rgba(255,158,122,.45)}
+.dl-rise.sunset>svg,.dl-rise.sunset .dl-rise-label{color:#FF9E7A}
 
 .dl-sun{position:absolute;top:8%;right:9%;width:108px;height:108px}
 .dl-sun-core{position:absolute;inset:30px;border-radius:50%;background:radial-gradient(circle,#FFF7DD,#FFF1C2 40%,var(--sun) 72%);box-shadow:0 0 48px rgba(253,184,19,.8),0 0 90px rgba(253,184,19,.35)}
