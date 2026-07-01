@@ -91,6 +91,7 @@ const STR = {
     high: "H", low: "L", chance: "chance", departure: "Best windows", refresh: "Refresh",
     push: "Browser push notifications", sms: "SMS alerts (Africa's Talking)", email: "Email summaries",
     rain_th: "Heavy rain (mm/hr)", wind_th: "High wind (km/h)", heat_th: "Extreme heat (°C)", uv_th: "High UV index",
+    appearance: "Appearance", theme_light: "Light", theme_dark: "Dark", theme_auto: "Auto",
     save: "Save", saved_ok: "Saved", sign: "Dalili sign", impact: "What it means", action: "What to do",
     open_advice: "See advisories", reading: "Reading", current_loc: "Current",
   },
@@ -115,6 +116,7 @@ const STR = {
     high: "Juu", low: "Chini", chance: "uwezekano", departure: "Nyakati nzuri", refresh: "Onyesha upya",
     push: "Arifa za kivinjari", sms: "Tahadhari za SMS (Africa's Talking)", email: "Muhtasari wa barua pepe",
     rain_th: "Mvua kubwa (mm/saa)", wind_th: "Upepo mkali (km/saa)", heat_th: "Joto kali (°C)", uv_th: "UV ya juu",
+    appearance: "Muonekano", theme_light: "Mwangaza", theme_dark: "Giza", theme_auto: "Otomatiki",
     save: "Hifadhi", saved_ok: "Imehifadhiwa", sign: "Dalili", impact: "Maana yake", action: "Fanya hivi",
     open_advice: "Ona ushauri", reading: "Soma", current_loc: "Sasa",
   },
@@ -1177,6 +1179,17 @@ function SettingsView({ me, updateMe, lang, setLang, t, onLogout, account }) {
       </div>
 
       <div className="dl-card">
+        <div className="dl-card-head"><Moon size={16} /> <h3>{t.appearance}</h3></div>
+        <div className="dl-seg">
+          {[["light", t.theme_light, Sun], ["dark", t.theme_dark, Moon], ["auto", t.theme_auto, Smartphone]].map(([val, label, Ic]) => (
+            <button key={val} className={(me.theme || "auto") === val ? "on" : ""} onClick={() => updateMe({ theme: val })}>
+              <Ic size={14} style={{ marginRight: 6, verticalAlign: "-2px" }} />{label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="dl-card">
         <div className="dl-card-head"><AlertTriangle size={16} /> <h3>{t.thresholds}</h3></div>
         <div className="dl-th">
           <ThRow label={t.rain_th} value={draft.rain} step={0.5} min={1} max={30} onChange={(v) => setDraft({ ...draft, rain: v })} />
@@ -1233,6 +1246,23 @@ function Brand({ compact }) {
         <span className="dl-brand-name">Dalili</span>
         {!compact && <span className="dl-brand-tag">Soma anga, panga vyema</span>}
       </div>
+    </div>
+  );
+}
+
+/* Loading / intro splash — Lottie animation (web component loaded in index.html). */
+function Intro({ lang }) {
+  return (
+    <div className="dl-intro">
+      <div
+        className="dl-intro-anim"
+        dangerouslySetInnerHTML={{
+          __html:
+            '<lottie-player src="https://lottie.host/aa9e47ff-b67e-4beb-a386-6e3c77c5fe47/cLksQXG8LV.json" background="transparent" speed="1" style="width:min(60vw,260px);height:min(60vw,260px)" autoplay loop></lottie-player>',
+        }}
+      />
+      <div className="dl-intro-brand">Dalili</div>
+      <div className="dl-intro-tag">{lang === "sw" ? "Soma anga, panga vyema" : "Reading the sky…"}</div>
     </div>
   );
 }
@@ -1410,7 +1440,7 @@ function Onboarding({ lang, setLang, onDone }) {
 
 const seededAccounts = [{ name: "Demo User", email: "demo@dalili.ke", password: "demo1234" }];
 const freshUserData = () => ({
-  onboarded: false, role: "mtumiaji", units: "metric", lang: "en",
+  onboarded: false, role: "mtumiaji", units: "metric", lang: "en", theme: "auto",
   location: LOCATIONS[0], savedIds: ["nairobi", "mombasa", "kisumu", "nakuru"],
   thresholds: DEFAULT_THRESHOLDS, notify: DEFAULT_NOTIFY, phones: [], smsOutbox: [],
   mapsKey: "", smsEndpoint: "",
@@ -1474,6 +1504,7 @@ export default function App() {
   const [error, setError] = useState(false);
   const [conditions, setConditions] = useState({});
   const [previewRole, setPreviewRole] = useState(null);
+  const [booting, setBooting] = useState(true); // show the intro/loading splash
 
   const me = sessionEmail ? userData[sessionEmail] : null;
   const account = sessionEmail ? accounts.find((a) => a.email === sessionEmail) : null;
@@ -1483,6 +1514,29 @@ export default function App() {
   useEffect(() => {
     savePersisted({ lang, accounts, userData, sessionEmail });
   }, [lang, accounts, userData, sessionEmail]);
+
+  // Loading/intro splash on first load.
+  useEffect(() => {
+    const id = setTimeout(() => setBooting(false), 2800);
+    return () => clearTimeout(id);
+  }, []);
+
+  // Dark mode: apply the user's theme (light/dark/auto) to <html data-theme>.
+  const theme = me?.theme || "auto";
+  useEffect(() => {
+    const root = document.documentElement;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const resolved = theme === "auto" ? (mq.matches ? "dark" : "light") : theme;
+      root.setAttribute("data-theme", resolved);
+    };
+    apply();
+    if (theme === "auto") {
+      mq.addEventListener?.("change", apply);
+      return () => mq.removeEventListener?.("change", apply);
+    }
+    return undefined;
+  }, [theme]);
 
   const updateMe = useCallback((patch) => {
     setUserData((prev) => ({ ...prev, [sessionEmail]: { ...prev[sessionEmail], ...patch } }));
@@ -1583,6 +1637,9 @@ export default function App() {
   }, [alerts, location.id, location.name, me, updateMe]);
 
   /* ---- gates ---- */
+  if (booting) {
+    return (<><StyleTag /><Intro lang={lang} /></>);
+  }
   if (!sessionEmail) {
     return (<><StyleTag /><AuthScreen lang={lang} setLang={setLang} accounts={accounts}
       onRegister={(acc) => { setAccounts((p) => [...p, acc]); setUserData((p) => ({ ...p, [acc.email]: freshUserData() })); setSessionEmail(acc.email); }}
@@ -1814,12 +1871,38 @@ function StyleTag() {
   --ui:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,monospace;
 }
+
+/* ---------- Dark mode (applied via <html data-theme="dark">) ---------- */
+:root[data-theme="dark"]{
+  --ink:#e9f1fb; --ink-soft:#a6bacd; --ink-faint:#6d8296;
+  --bg:#0a1420; --bg-2:#0d1a29;
+  --surface:#132234; --surface-2:#182a3f;
+  --line:#243748; --line-2:#1d2c3e;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.34);
+  --shadow-lg:0 12px 40px rgba(0,0,0,.5);
+}
+:root[data-theme="dark"] .dl-top{background:rgba(10,20,32,.82)}
+:root[data-theme="dark"] .dl-side{background:rgba(14,26,41,.78)}
+:root[data-theme="dark"] .dl-bottom{background:rgba(14,26,41,.92)}
+:root[data-theme="dark"] .dl-field:focus-within{background:var(--surface)}
+:root[data-theme="dark"] .dl-seg button.on{background:var(--surface)}
+:root[data-theme="dark"] .dl-auth-lang,:root[data-theme="dark"] .dl-seg-mini{background:var(--surface-2)}
+:root[data-theme="dark"] .dl-lpin-label{background:rgba(20,32,48,.92);color:var(--ink)}
+
 *{box-sizing:border-box}
 .dl-root,.dl-auth,.dl-onboard{font-family:var(--ui);color:var(--ink);-webkit-font-smoothing:antialiased}
 .dl-root *,.dl-auth *,.dl-onboard *{margin:0}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input{font-family:inherit}
 h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
+
+/* ---------- Loading / intro splash ---------- */
+.dl-intro{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  background:radial-gradient(1000px 520px at 50% 20%,rgba(56,189,248,.18),transparent 60%),linear-gradient(170deg,#0b2540 0%,#0a1420 100%)}
+.dl-intro-anim{display:grid;place-items:center}
+.dl-intro-brand{font-family:var(--display);font-weight:800;font-size:34px;letter-spacing:-.02em;
+  background:linear-gradient(120deg,#7DD3FC,#FDB813);-webkit-background-clip:text;background-clip:text;color:transparent}
+.dl-intro-tag{color:#9db3c4;font-size:14px;font-weight:600}
 
 /* ---------- App shell ---------- */
 .dl-root{display:grid;grid-template-columns:264px 1fr;min-height:100dvh;background:

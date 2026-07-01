@@ -15,7 +15,7 @@ body,
 }
 
 body {
-  /* Sky-toned base so there is no dark flash before the app mounts and any
+  /* Sky-toned base so there is no light flash before the app mounts and any
      overscroll area matches the in-app sky gradient. */
   background: linear-gradient(180deg, #eaf5fe 0%, #ddeefb 100%);
   color: #0b2540;
@@ -23,6 +23,19 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+}
+
+/* Dark mode base — matches the in-app dark palette to avoid a flash.
+   Applies on OS preference, or when the app has explicitly set data-theme. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) body {
+    background: linear-gradient(180deg, #0a1420 0%, #0d1a29 100%);
+    color: #e8f1fb;
+  }
+}
+html[data-theme="dark"] body {
+  background: linear-gradient(180deg, #0a1420 0%, #0d1a29 100%);
+  color: #e8f1fb;
 }
 
 /* Respect users who prefer reduced motion at the document level too. */
