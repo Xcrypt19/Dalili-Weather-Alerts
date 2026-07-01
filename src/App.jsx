@@ -577,7 +577,8 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
   const drizzle = scene.startsWith("drizzle");
   const heavy = scene.startsWith("heavy-rain");
   const isThunder = scene.startsWith("thunder");
-  const showClouds = scene.startsWith("cloudy") || scene.startsWith("fog") || scene.includes("partly") || isRain || isThunder;
+  const isFog = scene.startsWith("fog");
+  const showClouds = scene.startsWith("cloudy") || scene.includes("partly") || isRain || isThunder;
   // Stars/moon/constellations only when the sky is actually clear at night.
   const isClearNight = isNight && (scene.includes("clear") || scene.includes("partly"));
   const isDayClear = (scene.includes("clear") || scene.includes("partly")) && !isNight;
@@ -608,7 +609,9 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
       return { left: rnd(0, 100), top: rnd(0, 96), size, op: rnd(0.5, 1), delay: rnd(0, 6), dur: rnd(2.6, 6.5), col, glow: size > 2.2 };
     }),
     dust: Array.from({ length: 80 }, (_, i) => ({ left: rnd(6, 94), top: 6 + i * 0.6 + rnd(-6, 8), size: rnd(0.5, 1.2), op: rnd(0.12, 0.42), delay: rnd(0, 6), dur: rnd(3, 7) })),
-    drops: Array.from({ length: rainCfg.count }, () => ({ left: rnd(-2, 100), delay: rnd(0, 2), dur: rnd(rainCfg.durMin, rainCfg.durMax), len: rnd(rainCfg.lenMin, rainCfg.lenMax), w: rnd(rainCfg.wMin, rainCfg.wMax), op: rnd(rainCfg.opMin, rainCfg.opMax) })),
+    drops: Array.from({ length: rainCfg.count }, () => ({ left: rnd(-6, 104), delay: rnd(0, 2.2), dur: rnd(rainCfg.durMin, rainCfg.durMax), len: rnd(rainCfg.lenMin, rainCfg.lenMax), w: rnd(rainCfg.wMin, rainCfg.wMax), op: rnd(rainCfg.opMin, rainCfg.opMax) })),
+    // Far layer for parallax depth: smaller, slower, fainter, blurred.
+    dropsFar: Array.from({ length: Math.round(rainCfg.count * 0.6) }, () => ({ left: rnd(-6, 104), delay: rnd(0, 2.2), dur: rnd(rainCfg.durMin * 1.4, rainCfg.durMax * 1.5), len: rnd(rainCfg.lenMin * 0.6, rainCfg.lenMax * 0.7), w: rnd(rainCfg.wMin * 0.7, rainCfg.wMax * 0.8), op: rnd(rainCfg.opMin * 0.6, rainCfg.opMax * 0.7) })),
     birds: Array.from({ length: 6 }, () => ({ top: rnd(6, 40), dur: rnd(24, 46), delay: rnd(0, 30), w: rnd(15, 30), dip: rnd(-34, -8), flap: rnd(0.4, 0.7) })),
     // Fewer shooting stars, long gaps between them.
     shooters: Array.from({ length: 2 }, () => ({ top: rnd(3, 38), left: rnd(20, 78), ang: rnd(18, 36), dist: rnd(360, 640), dur: rnd(16, 30), delay: rnd(4, 24) })),
@@ -668,14 +671,39 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
             ))}
           </div>
         )}
-        {(isRain || isThunder) && (
-          <div className="dl-rain">
-            {fx.drops.map((d, i) => (
-              <span key={i} style={{ left: `${d.left}%`, height: `${d.len}px`, width: `${d.w}px`, opacity: d.op, animationDelay: `${d.delay}s`, animationDuration: `${d.dur}s` }} />
-            ))}
+        {/* Fog / mist — drifting banks */}
+        {isFog && (
+          <div className="dl-fog">
+            <span className="dl-fogbank f1" /><span className="dl-fogbank f2" /><span className="dl-fogbank f3" /><span className="dl-fogbank f4" />
           </div>
         )}
-        {isThunder && <div className="dl-flash" />}
+        {(isRain || isThunder) && (
+          <>
+            {/* Far (parallax) rain behind, main rain in front */}
+            <div className="dl-rain far">
+              {fx.dropsFar.map((d, i) => (
+                <span key={i} style={{ left: `${d.left}%`, height: `${d.len}px`, width: `${d.w}px`, opacity: d.op, animationDelay: `${d.delay}s`, animationDuration: `${d.dur}s` }} />
+              ))}
+            </div>
+            <div className="dl-rain">
+              {fx.drops.map((d, i) => (
+                <span key={i} style={{ left: `${d.left}%`, height: `${d.len}px`, width: `${d.w}px`, opacity: d.op, animationDelay: `${d.delay}s`, animationDuration: `${d.dur}s` }} />
+              ))}
+            </div>
+            {/* Light drizzle carries a soft mist haze */}
+            {drizzle && <div className="dl-mist" />}
+          </>
+        )}
+        {isThunder && (
+          <>
+            <div className="dl-flash" />
+            <div className="dl-bolt">
+              <svg viewBox="0 0 40 100" preserveAspectRatio="none">
+                <path d="M22 0 L8 46 L20 46 L10 100 L34 40 L21 40 Z" fill="#eaf2ff" />
+              </svg>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="dl-sky-inner">
@@ -2194,11 +2222,40 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-cloud.c7::before{width:58px;height:58px;top:-24px;left:22px}.dl-cloud.c7::after{width:44px;height:44px;top:-16px;left:66px}
 @keyframes cloudmove{from{translate:-190px 0}to{translate:calc(100vw + 280px) 0}}
 @keyframes cloudbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
-.dl-rain{position:absolute;inset:0}
-.dl-rain span{position:absolute;top:-14%;width:2px;height:16px;background:linear-gradient(transparent,rgba(255,255,255,.75));border-radius:2px;animation:fall linear infinite}
-@keyframes fall{from{transform:translateY(-20px)}to{transform:translateY(115%)}}
-.dl-flash{position:absolute;inset:0;background:rgba(255,255,255,.85);opacity:0;animation:flash 7s linear infinite}
-@keyframes flash{0%,93%,100%{opacity:0}94%{opacity:.7}95%{opacity:.1}96%{opacity:.5}97%{opacity:0}}
+/* Rain — angled full-height streaks with a blurred far layer for depth.
+   (Falls the whole hero: translateY uses vh, not a % of the tiny drop.) */
+.dl-rain{position:absolute;inset:-8% -6%;overflow:hidden;pointer-events:none}
+.dl-rain.far{filter:blur(1.3px);opacity:.65}
+.dl-rain span{position:absolute;top:-16vh;border-radius:2px;rotate:14deg;
+  background:linear-gradient(180deg,rgba(205,226,255,0),rgba(214,232,255,.9));
+  animation:rainfall linear infinite;will-change:transform}
+@keyframes rainfall{0%{transform:translate(0,-16vh)}100%{transform:translate(-7vw,116vh)}}
+
+/* Fog / mist — soft drifting banks that reduce clarity */
+.dl-fog{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.dl-fogbank{position:absolute;left:-30%;width:160%;height:42%;border-radius:50%;filter:blur(26px);
+  background:radial-gradient(60% 100% at 50% 50%,rgba(222,230,240,.55),transparent 72%);animation:fogdrift linear infinite}
+.dl-fogbank.f1{top:6%;animation-duration:38s;opacity:.5}
+.dl-fogbank.f2{top:30%;animation-duration:54s;animation-delay:-14s;opacity:.44}
+.dl-fogbank.f3{top:54%;animation-duration:46s;animation-delay:-28s;opacity:.5}
+.dl-fogbank.f4{top:74%;animation-duration:60s;animation-delay:-8s;opacity:.42}
+@keyframes fogdrift{0%{transform:translateX(-16%)}50%{transform:translateX(16%)}100%{transform:translateX(-16%)}}
+
+/* Drizzle mist haze */
+.dl-mist{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 30%,rgba(205,218,232,.14) 70%,rgba(205,218,232,.24));animation:mistpulse 9s ease-in-out infinite}
+@keyframes mistpulse{0%,100%{opacity:.4}50%{opacity:.7}}
+
+/* Lightning — ambient sheet flash + an occasional bolt */
+.dl-flash{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(120% 90% at 60% 10%,rgba(214,232,255,.9),rgba(160,190,255,.3) 40%,transparent 70%);
+  animation:flash 6.5s linear infinite}
+@keyframes flash{0%,40%,100%{opacity:0}41%{opacity:.85}43%{opacity:.15}44%{opacity:.7}47%{opacity:0}
+  70%{opacity:0}71%{opacity:.6}73%{opacity:0}}
+.dl-bolt{position:absolute;top:4%;left:52%;width:70px;height:56%;opacity:0;pointer-events:none;
+  transform-origin:top center;animation:bolt 6.5s linear infinite}
+.dl-bolt svg{width:100%;height:100%;filter:drop-shadow(0 0 10px rgba(200,220,255,.95)) drop-shadow(0 0 22px rgba(150,190,255,.7))}
+@keyframes bolt{0%,40%,100%{opacity:0}41%{opacity:1}43%{opacity:.2}44%{opacity:.9}46%{opacity:0}}
 
 /* Birds gliding across the day sky (silhouettes with flapping wings).
    Per-bird top/width/duration/delay/dip come from inline random styles. */
@@ -2229,7 +2286,7 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
   100%{opacity:0;transform:rotate(var(--ang,25deg)) translateX(var(--dist,460px)) scaleX(1)}
 }
 
-@media (prefers-reduced-motion: reduce){.dl-cloud,.dl-rain span,.dl-flash,.dl-sun-glow,.dl-stars span,.dl-bird,.dl-bird svg,.dl-sh,.dl-constel circle{animation:none!important}.dl-sh{opacity:0}}
+@media (prefers-reduced-motion: reduce){.dl-cloud,.dl-rain span,.dl-flash,.dl-bolt,.dl-fogbank,.dl-mist,.dl-sun-glow,.dl-sun-rays,.dl-stars span,.dl-bird,.dl-bird svg,.dl-sh,.dl-constel circle{animation:none!important}.dl-sh,.dl-bolt,.dl-flash{opacity:0}}
 
 /* ---------- Cards ---------- */
 .dl-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:clamp(14px,2.4vw,20px);box-shadow:var(--shadow)}
