@@ -905,8 +905,16 @@ function GoogleMapPanel({ current, units, conditions }) {
     }).addTo(map);
     groupRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
-    setTimeout(() => map.invalidateSize(), 200);
-    return () => { map.remove(); mapRef.current = null; groupRef.current = null; };
+    // Robustly fix Leaflet's blank-tiles-on-first-render: recompute size once the
+    // container actually has its height, and on any later resize.
+    map.whenReady(() => setTimeout(() => map.invalidateSize(), 60));
+    let ro;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => map.invalidateSize());
+      ro.observe(ref.current);
+    }
+    [150, 400, 800].forEach((ms) => setTimeout(() => map.invalidateSize(), ms));
+    return () => { ro?.disconnect(); map.remove(); mapRef.current = null; groupRef.current = null; };
   }, []);
 
   // Show ONLY the current location, and smoothly zoom into it on change.
@@ -1968,6 +1976,14 @@ function StyleTag() {
 :root[data-theme="dark"] .dl-seg button.on{background:var(--surface)}
 :root[data-theme="dark"] .dl-auth-lang,:root[data-theme="dark"] .dl-seg-mini{background:var(--surface-2)}
 :root[data-theme="dark"] .dl-lpin-label{background:rgba(20,32,48,.92);color:var(--ink)}
+:root[data-theme="dark"] .dl-sign{background:var(--surface-2);border-color:var(--line)}
+:root[data-theme="dark"] .dl-sign.tone-good{background:linear-gradient(100deg,rgba(23,154,78,.16),var(--surface-2));border-color:rgba(23,154,78,.4)}
+:root[data-theme="dark"] .dl-sign.tone-caution{background:linear-gradient(100deg,rgba(245,158,11,.16),var(--surface-2));border-color:rgba(245,158,11,.4)}
+:root[data-theme="dark"] .dl-sign.tone-alert{background:linear-gradient(100deg,rgba(239,68,68,.16),var(--surface-2));border-color:rgba(239,68,68,.4)}
+:root[data-theme="dark"] .dl-empty-ic{background:rgba(23,154,78,.16)}
+:root[data-theme="dark"] .dl-adv.tone-good .dl-adv-ic{background:rgba(23,154,78,.18)}
+:root[data-theme="dark"] .dl-adv.tone-caution .dl-adv-ic{background:rgba(245,158,11,.18)}
+:root[data-theme="dark"] .dl-adv.tone-alert .dl-adv-ic{background:rgba(239,68,68,.18)}
 
 *{box-sizing:border-box}
 .dl-root,.dl-auth,.dl-onboard{font-family:var(--ui);color:var(--ink);-webkit-font-smoothing:antialiased}
