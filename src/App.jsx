@@ -1052,13 +1052,32 @@ function NotificationsView({ me, updateMe, t, lang }) {
     return () => { alive = false; };
   }, [healthUrl]);
 
-  const addPhone = () => {
+  const addPhone = async () => {
     const n = normalizePhone(raw);
     if (!n.ok) { setErr(n.reason); return; }
     if (phones.find((p) => p.number === n.value)) { setErr("already added"); return; }
-    const next = [...phones, { id: Date.now(), number: n.value, verified: false, primary: phones.length === 0 }];
+    const newPhone = { id: Date.now(), number: n.value, verified: false, primary: phones.length === 0 };
+    const next = [...phones, newPhone];
     updateMe({ phones: next });
     setRaw(""); setErr("");
+
+    // Immediately send a welcome SMS so the user receives a message on this number.
+    setSendMsg(lang === "sw" ? "Inatuma ujumbe wa kukaribisha…" : "Sending welcome message…");
+    const r = await sendSMS({
+      endpoint: smsEndpoint, to: n.value,
+      message: lang === "sw"
+        ? "Karibu Dalili! Utapokea tahadhari za hali ya hewa kwa eneo lako kwa nambari hii."
+        : "Welcome to Dalili! You'll now receive weather alerts for your area on this number.",
+    });
+    const out = [{ id: Date.now() + 1, to: n.value, sev: "Welcome", ...r }, ...(me.smsOutbox || [])].slice(0, 30);
+    // Mark verified once the provider accepts delivery to the number.
+    const phones2 = next.map((p) => (p.number === n.value ? { ...p, verified: r.ok || p.verified } : p));
+    updateMe({ phones: phones2, smsOutbox: out });
+    setSendMsg(r.simulated
+      ? (lang === "sw" ? "Imeigwa — sanidi mtoa huduma wa SMS." : "Simulated — configure an SMS provider to deliver.")
+      : r.ok
+        ? (lang === "sw" ? "Ujumbe wa kukaribisha umetumwa!" : "Welcome message sent!")
+        : `${lang === "sw" ? "Imeshindwa" : "Failed"}: ${r.error || `HTTP ${r.status || "?"}`}`);
   };
   const verify = (id) => updateMe({ phones: phones.map((p) => p.id === id ? { ...p, verified: true } : p) });
   const makePrimary = (id) => updateMe({ phones: phones.map((p) => ({ ...p, primary: p.id === id })) });
@@ -1596,6 +1615,7 @@ export default function App() {
   const [conditions, setConditions] = useState({});
   const [previewRole, setPreviewRole] = useState(null);
   const [booting, setBooting] = useState(true); // show the intro/loading splash
+  const smsSentRef = useRef(new Set()); // dedup auto-sent alert SMS within a session
 
   const me = sessionEmail ? userData[sessionEmail] : null;
   const account = sessionEmail ? accounts.find((a) => a.email === sessionEmail) : null;
@@ -1729,6 +1749,43 @@ export default function App() {
       updateMe({ alertHistory: merged });
     }
   }, [alerts, location.id, location.name, me, updateMe]);
+
+  /* Auto-send alert SMS to the user's saved numbers so they actually RECEIVE
+     weather notifications (respecting their per-severity SMS preferences).
+     Deduplicated per alert + number + hour so it never spams. */
+  useEffect(() => {
+    if (!me?.onboarded || !alerts.length) return;
+    const phones = me.phones || [];
+    if (!phones.length) return;
+    const notify = me.notify || DEFAULT_NOTIFY;
+    const endpoint = me.smsEndpoint || ENV_SMS_ENDPOINT;
+    const hourKey = new Date().toISOString().slice(0, 13);
+    const sevChannel = { notice: "smsNotice", watch: "smsWatch", warning: "smsWarning" };
+
+    const pairs = [];
+    for (const a of alerts) {
+      const chan = sevChannel[a.sev.key];
+      if (!chan || !notify[chan]) continue;
+      for (const ph of phones) {
+        const key = `${a.id}-${a.sev.key}-${ph.number}-${hourKey}`;
+        if (smsSentRef.current.has(key)) continue;
+        smsSentRef.current.add(key);
+        pairs.push({ a, ph });
+      }
+    }
+    if (!pairs.length) return;
+
+    (async () => {
+      const results = [];
+      for (const { a, ph } of pairs) {
+        const msg = `DALILI ${a.sev.en.toUpperCase()}: ${a.title} — ${a.action}`.slice(0, 300);
+        const r = await sendSMS({ endpoint, to: ph.number, message: msg });
+        results.push({ id: Date.now() + Math.random(), to: ph.number, sev: a.sev.en, ...r });
+      }
+      updateMe({ smsOutbox: [...results, ...(me.smsOutbox || [])].slice(0, 40) });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alerts, location.id, me?.onboarded]);
 
   /* ---- gates ---- */
   if (booting) {
