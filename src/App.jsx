@@ -2097,8 +2097,11 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-moon::after{width:8px;height:8px;top:34px;left:34px;box-shadow:-14px -6px 0 -1px rgba(150,162,186,.3)}
 .dl-moon-glow{position:absolute;inset:-60%;border-radius:50%;background:radial-gradient(circle,rgba(226,233,245,.28),transparent 62%)}
 /* Milky Way band + starry depth */
-.dl-milkyway{position:absolute;left:-10%;right:-10%;top:8%;height:46%;transform:rotate(-18deg);pointer-events:none;filter:blur(6px);opacity:.5;
-  background:radial-gradient(60% 100% at 50% 50%,rgba(180,200,255,.22),rgba(200,180,255,.10) 55%,transparent 75%)}
+.dl-milkyway{position:absolute;left:-15%;right:-15%;top:6%;height:64%;transform:rotate(-20deg);pointer-events:none;filter:blur(16px);opacity:.34;
+  background:
+    radial-gradient(48% 60% at 38% 42%,rgba(190,205,255,.20),transparent 72%),
+    radial-gradient(46% 58% at 66% 56%,rgba(210,188,255,.15),transparent 74%),
+    linear-gradient(102deg,transparent 32%,rgba(200,210,255,.10) 50%,transparent 68%)}
 .dl-atmos{position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 80% at 50% 0%,transparent 55%,rgba(2,10,22,.45) 100%)}
 .dl-stars span{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;animation:twinkle 3.5s ease-in-out infinite}
 .dl-stars span.dust{background:#dfe8ff;animation-name:twinkle}
