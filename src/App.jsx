@@ -1172,9 +1172,9 @@ function NotificationsView({ me, updateMe, t, lang }) {
           {health == null
             ? (lang === "sw" ? "Inakagua seva ya SMS…" : "Checking SMS backend…")
             : health.configured
-              ? (lang === "sw" ? `Seva iko tayari (${health.env}).` : `Backend ready (${health.env}).`)
+              ? (lang === "sw" ? `Seva iko tayari (${health.provider || health.env}).` : `Backend ready (${health.provider || health.env}).`)
               : health.ok
-                ? (lang === "sw" ? "Seva inafanya kazi lakini AT_API_KEY haijawekwa." : "Backend up, but AT_API_KEY is not set.")
+                ? (lang === "sw" ? "Seva inafanya kazi lakini hakuna mtoa huduma wa SMS aliyewekwa." : "Backend up, but no SMS provider is configured.")
                 : (lang === "sw" ? "Seva ya SMS haipatikani." : "SMS backend unreachable.")}
         </div>
         <div className="dl-row-between" style={{ marginTop: 10 }}>
