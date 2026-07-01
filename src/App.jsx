@@ -1017,9 +1017,22 @@ function NotificationsView({ me, updateMe, t, lang }) {
   const [pushState, setPushState] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
+  const [sendMsg, setSendMsg] = useState("");
+  const [health, setHealth] = useState(null);
   const phones = me.phones || [];
   const notify = me.notify || DEFAULT_NOTIFY;
   const smsEndpoint = me.smsEndpoint || ENV_SMS_ENDPOINT;
+  const healthUrl = smsEndpoint.replace(/\/sms$/, "/health");
+
+  // Probe the SMS backend so the user can see whether it's live + configured.
+  useEffect(() => {
+    let alive = true;
+    fetch(healthUrl)
+      .then((r) => r.json())
+      .then((j) => alive && setHealth(j))
+      .catch(() => alive && setHealth({ ok: false }));
+    return () => { alive = false; };
+  }, [healthUrl]);
 
   const addPhone = () => {
     const n = normalizePhone(raw);
@@ -1051,6 +1064,7 @@ function NotificationsView({ me, updateMe, t, lang }) {
   const sendTest = (sev) => {
     const primary = phones.find((p) => p.primary) || phones[0];
     if (!primary) return;
+    setSendMsg(lang === "sw" ? "Inatuma…" : "Sending…");
     sendSMS({
       endpoint: smsEndpoint, to: primary.number,
       message: lang === "sw"
@@ -1059,6 +1073,11 @@ function NotificationsView({ me, updateMe, t, lang }) {
     }).then((r) => {
       const out = [{ id: Date.now(), to: primary.number, sev, ...r }, ...(me.smsOutbox || [])].slice(0, 20);
       updateMe({ smsOutbox: out });
+      setSendMsg(r.simulated
+        ? (lang === "sw" ? "Imeigwa — hakuna seva ya SMS." : "Simulated — no SMS backend configured.")
+        : r.ok
+          ? (lang === "sw" ? "SMS imetumwa." : "SMS sent.")
+          : `${lang === "sw" ? "Imeshindwa" : "Failed"}: ${r.error || `HTTP ${r.status || "?"}`}`);
     });
   };
 
@@ -1130,12 +1149,23 @@ function NotificationsView({ me, updateMe, t, lang }) {
           ))}
         </div>
         <div className="dl-divider" />
-        <div className="dl-row-between">
+        {/* Live backend status so misconfiguration is obvious */}
+        <div className={`dl-smsstatus ${health ? (health.configured ? "ok" : health.ok ? "warn" : "fail") : ""}`}>
+          {health == null
+            ? (lang === "sw" ? "Inakagua seva ya SMS…" : "Checking SMS backend…")
+            : health.configured
+              ? (lang === "sw" ? `Seva iko tayari (${health.env}).` : `Backend ready (${health.env}).`)
+              : health.ok
+                ? (lang === "sw" ? "Seva inafanya kazi lakini AT_API_KEY haijawekwa." : "Backend up, but AT_API_KEY is not set.")
+                : (lang === "sw" ? "Seva ya SMS haipatikani." : "SMS backend unreachable.")}
+        </div>
+        <div className="dl-row-between" style={{ marginTop: 10 }}>
           <button className="dl-btn ghost sm" onClick={() => sendTest("Watch")} disabled={!phones.length}>
             <Send size={14} /> {lang === "sw" ? "Tuma jaribio" : "Send test SMS"}
           </button>
           <span className="dl-muted sm">{lang === "sw" ? "Inatuma kupitia" : "Sending via"} <code>{smsEndpoint}</code></span>
         </div>
+        {sendMsg && <div className="dl-inline-err" style={{ color: sendMsg.startsWith("Failed") || sendMsg.startsWith("Imeshindwa") ? "var(--ember)" : "var(--ink-soft)" }}>{sendMsg}</div>}
       </div>
 
       <div className="dl-card">
@@ -1150,7 +1180,7 @@ function NotificationsView({ me, updateMe, t, lang }) {
                 <small>{m.simulated
                   ? (lang === "sw" ? "Imeigwa (hakuna seva)" : "Simulated (no backend)")
                   : m.ok === false
-                    ? (lang === "sw" ? "Imeshindwa (angalia seva)" : "Failed (check backend)")
+                    ? `${lang === "sw" ? "Imeshindwa" : "Failed"}: ${m.error || (lang === "sw" ? "angalia seva" : "check backend")}`
                     : (lang === "sw" ? "Imetumwa" : "Sent")} · {m.sev}</small>
               </div>
               <time>{new Date(m.id).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
@@ -1172,9 +1202,10 @@ async function sendSMS({ endpoint, to, message }) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to, message }),
     });
-    return { simulated: false, ok: res.ok };
-  } catch {
-    return { simulated: false, ok: false };
+    const body = await res.json().catch(() => ({}));
+    return { simulated: false, ok: res.ok && body.ok !== false, status: res.status, error: body.error || null };
+  } catch (e) {
+    return { simulated: false, ok: false, error: e.message || "network error" };
   }
 }
 
@@ -2258,6 +2289,13 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-prefrow span:nth-child(2){flex:1;font-weight:600;font-size:14px}
 .dl-dot{width:11px;height:11px;border-radius:50%}
 .dl-divider{height:1px;background:var(--line);margin:14px 0}
+.dl-smsstatus{font-size:12.5px;font-weight:600;padding:9px 12px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-soft)}
+.dl-smsstatus.ok{background:#e6f7ec;border-color:#bfe9c8;color:#0f7a3d}
+.dl-smsstatus.warn{background:#fff3da;border-color:#fde6b0;color:#7a5200}
+.dl-smsstatus.fail{background:#fdeeee;border-color:#f8c2c2;color:#a3242f}
+:root[data-theme="dark"] .dl-smsstatus.ok{background:rgba(23,154,78,.16);color:#67d99a}
+:root[data-theme="dark"] .dl-smsstatus.warn{background:rgba(245,158,11,.16);color:#f0c15a}
+:root[data-theme="dark"] .dl-smsstatus.fail{background:rgba(239,68,68,.16);color:#f19aa2}
 .dl-outbox{display:flex;flex-direction:column;gap:3px}
 .dl-outrow{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line-2)}
 .dl-outrow:last-child{border-bottom:none}
