@@ -15,6 +15,8 @@
  */
 import express from "express";
 import cors from "cors";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import "dotenv/config";
 
 const app = express();
@@ -90,7 +92,21 @@ app.post("/api/sms", async (req, res) => {
   }
 });
 
+/* ---------------------------------------------------------------------------
+ * Serve the built front-end (single-service deploy).
+ * `dist/` is produced by `npm run build` at the repo root during the build step.
+ * API routes above take precedence; everything else falls back to index.html
+ * so the single-page app can handle its own view state.
+ * ------------------------------------------------------------------------- */
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, "..", "dist");
+app.use(express.static(distPath));
+app.use((req, res, next) => {
+  if (req.method !== "GET" || req.path.startsWith("/api/")) return next();
+  res.sendFile(path.join(distPath, "index.html"));
+});
+
 app.listen(Number(PORT), () => {
-  console.log(`Dalili SMS backend listening on port ${PORT} (env: ${AT_ENV})`);
+  console.log(`Dalili running on port ${PORT} (env: ${AT_ENV})`);
   if (!AT_API_KEY) console.warn("⚠  AT_API_KEY is not set — /api/sms will return 503 until configured.");
 });
