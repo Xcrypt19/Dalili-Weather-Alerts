@@ -463,7 +463,7 @@ function useGoogleMaps(key) {
 
 /* ============================== Subcomponents ============================== */
 
-function LivingSky({ scene, info, cur, units, t, di, data }) {
+function LivingSky({ scene, info, cur, units, t, di, data, location }) {
   const reduce = useRef(false);
   useEffect(() => { reduce.current = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches; }, []);
   const isNight = scene.includes("night");
@@ -471,7 +471,8 @@ function LivingSky({ scene, info, cur, units, t, di, data }) {
   const heavy = scene === "heavy-rain";
   const isThunder = scene === "thunder";
   const showClouds = scene === "cloudy" || scene === "fog" || scene.includes("partly") || isRain || isThunder;
-  const drops = heavy ? 64 : 36;
+  // More particles because the card is now roughly a full screen tall.
+  const drops = heavy ? 110 : 66;
   const Icon = info?.Icon || Cloud;
   const sunrise = data?.daily?.sunrise?.[di];
   const sunset = data?.daily?.sunset?.[di];
@@ -486,8 +487,8 @@ function LivingSky({ scene, info, cur, units, t, di, data }) {
           <>
             <div className="dl-moon" />
             <div className="dl-stars">
-              {Array.from({ length: 28 }).map((_, i) => (
-                <span key={i} style={{ left: `${(i * 37) % 100}%`, top: `${(i * 23) % 72}%`, animationDelay: `${(i % 7) * 0.4}s` }} />
+              {Array.from({ length: 54 }).map((_, i) => (
+                <span key={i} style={{ left: `${(i * 37) % 100}%`, top: `${(i * 23) % 92}%`, animationDelay: `${(i % 7) * 0.4}s` }} />
               ))}
             </div>
           </>
@@ -495,6 +496,7 @@ function LivingSky({ scene, info, cur, units, t, di, data }) {
         {showClouds && (
           <div className="dl-clouds">
             <span className="dl-cloud c1" /><span className="dl-cloud c2" /><span className="dl-cloud c3" />
+            <span className="dl-cloud c4" /><span className="dl-cloud c5" />
           </div>
         )}
         {(isRain || isThunder) && (
@@ -508,16 +510,39 @@ function LivingSky({ scene, info, cur, units, t, di, data }) {
       </div>
 
       <div className="dl-sky-inner">
+        {/* Location, shown on the card */}
+        <div className="dl-sky-loc">
+          <MapPin size={18} strokeWidth={2.3} />
+          <div className="dl-sky-loc-text">
+            <span className="dl-sky-loc-name">{location?.name || t.current_loc}</span>
+            {location?.region && <span className="dl-sky-loc-region">{location.region}</span>}
+          </div>
+        </div>
+
         <div className="dl-sky-now">
           <div className="dl-sky-temp">{fTemp(cur?.temperature_2m, units)}</div>
           <div className="dl-sky-meta">
-            <div className="dl-sky-cond"><Icon size={20} strokeWidth={2.2} /> {info ? (t._lang === "sw" ? info.sw : info.en) : "—"}</div>
+            <div className="dl-sky-cond"><Icon size={24} strokeWidth={2.2} /> {info ? (t._lang === "sw" ? info.sw : info.en) : "—"}</div>
             <div className="dl-sky-feels">{t.feels} {fTemp(cur?.apparent_temperature, units)}</div>
           </div>
         </div>
+
+        {/* Sunrise / sunset — labelled and colour-coded */}
         <div className="dl-sky-rise">
-          <span><Sunrise size={15} /> {sunrise ? timeOnly(sunrise) : "—"}</span>
-          <span><Sunset size={15} /> {sunset ? timeOnly(sunset) : "—"}</span>
+          <div className="dl-rise sunrise">
+            <Sunrise size={22} strokeWidth={2.2} />
+            <div className="dl-rise-text">
+              <span className="dl-rise-label">{t.sunrise}</span>
+              <b>{sunrise ? timeOnly(sunrise) : "—"}</b>
+            </div>
+          </div>
+          <div className="dl-rise sunset">
+            <Sunset size={22} strokeWidth={2.2} />
+            <div className="dl-rise-text">
+              <span className="dl-rise-label">{t.sunset}</span>
+              <b>{sunset ? timeOnly(sunset) : "—"}</b>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1566,7 +1591,7 @@ export default function App() {
               {view === "dashboard" && (
                 <div className="dl-stack">
                   <div className="dl-hero" style={{ background: sceneStyle.grad, color: sceneStyle.text }}>
-                    <LivingSky scene={scene} info={info} cur={cur} units={units} t={t} di={di} data={data} />
+                    <LivingSky scene={scene} info={info} cur={cur} units={units} t={t} di={di} data={data} location={location} />
                   </div>
 
                   {sign && (
@@ -1783,18 +1808,35 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-view-head h2{font-size:clamp(20px,3vw,26px)}
 .dl-view-head p{color:var(--ink-soft);font-size:13.5px;margin-top:3px}
 
-/* ---------- Hero / Living sky ---------- */
-.dl-hero{position:relative;border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-lg);min-height:clamp(210px,30vw,260px)}
+/* ---------- Hero / Living sky (roughly one screen tall) ---------- */
+.dl-hero{position:relative;border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow-lg);min-height:clamp(460px,84vh,860px)}
 .dl-sky{position:relative;width:100%;height:100%;min-height:inherit}
 .dl-skyfx{position:absolute;inset:0;overflow:hidden}
-.dl-sky-inner{position:relative;z-index:3;height:100%;min-height:inherit;display:flex;flex-direction:column;justify-content:space-between;padding:clamp(18px,3vw,28px)}
+.dl-sky-inner{position:relative;z-index:3;height:100%;min-height:inherit;display:flex;flex-direction:column;justify-content:space-between;gap:20px;padding:clamp(20px,3.5vw,40px)}
+/* Location on the card */
+.dl-sky-loc{display:flex;align-items:center;gap:10px}
+.dl-sky-loc>svg{opacity:.92}
+.dl-sky-loc-text{display:flex;flex-direction:column;line-height:1.15}
+.dl-sky-loc-name{font-family:var(--display);font-weight:800;font-size:clamp(20px,3.4vw,30px);letter-spacing:-.01em}
+.dl-sky-loc-region{font-size:13px;font-weight:600;opacity:.82}
 .dl-sky-now{display:flex;align-items:flex-start;gap:16px}
-.dl-sky-temp{font-family:var(--display);font-weight:700;font-size:clamp(56px,12vw,92px);line-height:.92;letter-spacing:-.04em}
-.dl-sky-meta{padding-top:8px}
-.dl-sky-cond{display:flex;align-items:center;gap:8px;font-weight:700;font-size:clamp(15px,2.4vw,19px)}
-.dl-sky-feels{font-size:13.5px;opacity:.82;margin-top:3px;font-weight:500}
-.dl-sky-rise{display:flex;gap:18px;font-size:13px;font-weight:600;opacity:.9}
-.dl-sky-rise span{display:flex;align-items:center;gap:6px}
+.dl-sky-temp{font-family:var(--display);font-weight:700;font-size:clamp(72px,15vw,140px);line-height:.9;letter-spacing:-.04em}
+.dl-sky-meta{padding-top:12px}
+.dl-sky-cond{display:flex;align-items:center;gap:8px;font-weight:700;font-size:clamp(16px,2.6vw,22px)}
+.dl-sky-feels{font-size:14.5px;opacity:.85;margin-top:4px;font-weight:500}
+/* Sunrise / sunset — labelled + colour-coded */
+.dl-sky-rise{display:flex;flex-wrap:wrap;gap:12px}
+.dl-rise{display:flex;align-items:center;gap:12px;padding:12px 18px;border-radius:16px;
+  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.32);backdrop-filter:blur(6px);min-width:150px}
+.dl-rise-text{display:flex;flex-direction:column;line-height:1.1}
+.dl-rise-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.95}
+.dl-rise b{font-family:var(--mono);font-size:20px;font-weight:600;margin-top:2px}
+.dl-rise.sunrise{background:linear-gradient(120deg,rgba(253,184,19,.34),rgba(255,214,107,.14));border-color:rgba(253,184,19,.55)}
+.dl-rise.sunrise>svg{color:#FFC24B}
+.dl-rise.sunrise .dl-rise-label{color:#7a5200}
+.dl-rise.sunset{background:linear-gradient(120deg,rgba(244,114,94,.34),rgba(150,86,196,.18));border-color:rgba(244,114,94,.55)}
+.dl-rise.sunset>svg{color:#FF7E4B}
+.dl-rise.sunset .dl-rise-label{color:#7a2f12}
 
 .dl-sun{position:absolute;top:8%;right:9%;width:96px;height:96px}
 .dl-sun-core{position:absolute;inset:24px;border-radius:50%;background:radial-gradient(circle,#FFF1C2,var(--sun) 70%);box-shadow:0 0 40px rgba(253,184,19,.7)}
@@ -1812,7 +1854,11 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-cloud.c2::before{width:40px;height:40px;top:-16px;left:16px}.dl-cloud.c2::after{width:32px;height:32px;top:-11px;left:46px}
 .dl-cloud.c3{width:70px;height:20px;top:14%;left:-80px;opacity:.6;animation:drift 38s linear infinite 14s}
 .dl-cloud.c3::before{width:30px;height:30px;top:-12px;left:12px}.dl-cloud.c3::after{width:26px;height:26px;top:-9px;left:34px}
-@keyframes drift{from{transform:translateX(0)}to{transform:translateX(calc(100vw + 220px))}}
+.dl-cloud.c4{width:150px;height:42px;top:64%;left:-160px;opacity:.7;animation:drift 52s linear infinite 3s}
+.dl-cloud.c4::before{width:66px;height:66px;top:-28px;left:26px}.dl-cloud.c4::after{width:50px;height:50px;top:-18px;left:78px}
+.dl-cloud.c5{width:100px;height:28px;top:80%;left:-120px;opacity:.55;animation:drift 46s linear infinite 20s}
+.dl-cloud.c5::before{width:44px;height:44px;top:-18px;left:18px}.dl-cloud.c5::after{width:34px;height:34px;top:-12px;left:52px}
+@keyframes drift{from{transform:translateX(0)}to{transform:translateX(calc(100vw + 240px))}}
 .dl-rain{position:absolute;inset:0}
 .dl-rain span{position:absolute;top:-14%;width:2px;height:16px;background:linear-gradient(transparent,rgba(255,255,255,.75));border-radius:2px;animation:fall linear infinite}
 @keyframes fall{from{transform:translateY(-20px)}to{transform:translateY(115%)}}
