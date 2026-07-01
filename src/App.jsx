@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell,
@@ -701,46 +703,60 @@ function TrendsView({ data, units, t, lang }) {
 
 /* ----------------------------- Map (Google + SVG) -------------------------- */
 
-function GoogleMapPanel({ apiKey, locations, current, onSelect, units, conditions }) {
-  const { loaded, error } = useGoogleMaps(apiKey);
+/* Interactive map via Leaflet + OpenStreetMap — free, no API key, no billing.
+   Kept the name/props stable so the rest of the app is unchanged. */
+function GoogleMapPanel({ locations, current, onSelect, units, conditions }) {
   const ref = useRef(null);
   const mapRef = useRef(null);
-  const markersRef = useRef([]);
+  const groupRef = useRef(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
   const all = useMemo(() => {
     const arr = [...locations];
     if (current && !arr.find((l) => l.id === current.id)) arr.unshift(current);
     return arr;
   }, [locations, current]);
 
+  // Create the map once.
   useEffect(() => {
-    if (!loaded || !ref.current || !window.google) return;
-    const g = window.google;
-    if (!mapRef.current) {
-      mapRef.current = new g.maps.Map(ref.current, {
-        center: { lat: current?.lat ?? -0.5, lng: current?.lon ?? 37.5 },
-        zoom: 6, disableDefaultUI: true, zoomControl: true,
-        styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }],
-      });
-    }
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = all.map((l) => {
-      const isCur = current && l.id === current.id;
-      const mk = new g.maps.Marker({
-        position: { lat: l.lat, lng: l.lon }, map: mapRef.current, title: l.name,
-        label: { text: l.name, color: "#0b2540", fontSize: "11px", fontWeight: "600" },
-      });
-      mk.addListener("click", () => onSelect(l));
-      return mk;
-    });
-    if (current) mapRef.current.panTo({ lat: current.lat, lng: current.lon });
-  }, [loaded, all, current, onSelect]);
+    if (!ref.current) return undefined;
+    const map = L.map(ref.current, { zoomControl: true, attributionControl: true })
+      .setView([current?.lat ?? -0.5, current?.lon ?? 37.5], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(map);
+    groupRef.current = L.layerGroup().addTo(map);
+    mapRef.current = map;
+    // Recompute size once the card has laid out (Leaflet needs a real height).
+    setTimeout(() => map.invalidateSize(), 200);
+    return () => { map.remove(); mapRef.current = null; groupRef.current = null; };
+  }, []);
 
-  if (error) {
-    return <KenyaMapSVG locations={locations} current={current} conditions={conditions} units={units} onSelect={onSelect} reason={error} />;
-  }
-  if (!loaded) {
-    return <div className="dl-map-loading"><Loader2 size={22} className="dl-spin" /> Loading Google Maps…</div>;
-  }
+  // (Re)draw markers whenever locations/current/conditions change.
+  useEffect(() => {
+    const map = mapRef.current, group = groupRef.current;
+    if (!map || !group) return;
+    group.clearLayers();
+    all.forEach((l) => {
+      const isCur = current && l.id === current.id;
+      const c = conditions[l.id];
+      const temp = c ? fTemp(c.temp, units) : "";
+      const label = `${l.name}${temp ? ` · ${temp}` : ""}`;
+      const icon = L.divIcon({
+        className: "dl-lpin-wrap",
+        html: `<span class="dl-lpin-dot ${isCur ? "cur" : ""}"></span><span class="dl-lpin-label">${label}</span>`,
+        iconSize: [0, 0], iconAnchor: [7, 7],
+      });
+      L.marker([l.lat, l.lon], { icon, title: l.name })
+        .addTo(group)
+        .on("click", () => onSelectRef.current?.(l));
+    });
+    if (current) map.panTo([current.lat, current.lon]);
+    setTimeout(() => map.invalidateSize(), 100);
+  }, [all, current, conditions, units]);
+
   return <div ref={ref} className="dl-gmap" />;
 }
 
@@ -1084,15 +1100,10 @@ function SettingsView({ me, updateMe, lang, setLang, t, onLogout, account }) {
       </div>
 
       <div className="dl-card">
-        <div className="dl-card-head"><MapIcon size={16} /> <h3>Google Maps</h3></div>
-        <p className="dl-muted">{lang === "sw"
-          ? "Bandika ufunguo wa Google Maps JavaScript API ili kuwasha ramani hai."
-          : "Paste a Google Maps JavaScript API key to enable the live interactive map."}</p>
-        <div className="dl-addrow">
-          <Field icon={KeyRound} value={keyDraft} placeholder="AIza…" onChange={(e) => setKeyDraft(e.target.value)} />
-          <button className="dl-btn" onClick={() => updateMe({ mapsKey: keyDraft.trim() })}><Check size={16} /> {t.save}</button>
-        </div>
-        <div className="dl-muted sm" style={{ marginTop: 6 }}>{me.mapsKey ? (lang === "sw" ? "Ufunguo umewekwa." : "Key set — live map active.") : (lang === "sw" ? "Bila ufunguo: ramani ya SVG ya Kenya." : "Without a key: Kenya SVG overview map.")}</div>
+        <div className="dl-card-head"><MapIcon size={18} /> <h3>{lang === "sw" ? "Ramani" : "Map"}</h3></div>
+        <p className="dl-muted" style={{ margin: 0 }}>{lang === "sw"
+          ? "Ramani hai inatumia OpenStreetMap — bila ufunguo, bila malipo. Hakuna cha kusanidi."
+          : "The live map uses OpenStreetMap — no API key and no billing required. Nothing to configure."}</p>
       </div>
 
       <div className="dl-card">
@@ -1109,7 +1120,7 @@ function SettingsView({ me, updateMe, lang, setLang, t, onLogout, account }) {
       <div className="dl-card dl-about">
         <div className="dl-card-head"><Info size={16} /> <h3>{t.about}</h3></div>
         <p>Dalili — {lang === "sw" ? "tahadhari za hali ya hewa za eneo lako kwa Kenya" : "hyperlocal weather alerts for Kenya"}. BAC-2202.</p>
-        <p className="dl-muted sm">{lang === "sw" ? "Data hai: Open-Meteo. Ramani: Google Maps. SMS: Africa's Talking." : "Live data: Open-Meteo. Maps: Google Maps. SMS: Africa's Talking."}</p>
+        <p className="dl-muted sm">{lang === "sw" ? "Data hai: Open-Meteo. Ramani: OpenStreetMap. SMS: Africa's Talking." : "Live data: Open-Meteo. Maps: OpenStreetMap. SMS: Africa's Talking."}</p>
       </div>
     </div>
   );
@@ -1897,12 +1908,18 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 /* map */
 .dl-map-card{padding-bottom:14px}
 .dl-gmap,.dl-svgmap-wrap{width:100%;border-radius:var(--r-sm);overflow:hidden}
-.dl-gmap{height:clamp(420px,64vh,720px);border:1px solid var(--line)}
+.dl-gmap{height:clamp(420px,64vh,720px);border:1px solid var(--line);z-index:0}
 .dl-map-loading{height:clamp(420px,64vh,720px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--ink-soft);background:var(--surface-2);border-radius:var(--r-sm)}
-/* Manual location search on the map */
-.dl-mapsearch{position:relative;margin-bottom:12px;z-index:5}
+/* Leaflet marker pins (sky-coded) */
+.dl-lpin-wrap{background:none!important;border:none!important;width:auto!important;height:auto!important}
+.leaflet-div-icon.dl-lpin-wrap{background:none;border:none}
+.dl-lpin-dot{display:inline-block;width:14px;height:14px;border-radius:50%;background:var(--sky);border:2px solid #fff;box-shadow:0 1px 5px rgba(11,37,64,.45);vertical-align:middle}
+.dl-lpin-dot.cur{background:var(--azure);width:18px;height:18px;box-shadow:0 0 0 4px rgba(2,132,199,.25),0 1px 5px rgba(11,37,64,.45)}
+.dl-lpin-label{display:inline-block;margin-left:6px;font:600 11.5px var(--ui);color:var(--ink);background:rgba(255,255,255,.92);padding:1px 7px;border-radius:7px;box-shadow:0 1px 3px rgba(11,37,64,.25);white-space:nowrap;vertical-align:middle}
+/* Manual location search on the map (kept above the map layers) */
+.dl-mapsearch{position:relative;margin-bottom:12px;z-index:1000}
 .dl-mapsearch-spin{position:absolute;right:14px;top:14px;color:var(--azure)}
-.dl-mapsearch-res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-lg);padding:6px;max-height:320px;overflow-y:auto;z-index:6}
+.dl-mapsearch-res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-lg);padding:6px;max-height:320px;overflow-y:auto;z-index:1001}
 .dl-map-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:12px}
 .dl-svgmap{width:100%;height:auto;background:linear-gradient(180deg,#f3faff,#e8f4fe);border-radius:var(--r-sm);border:1px solid var(--line)}
 .dl-pin-temp{font-family:var(--mono);font-size:11px;font-weight:600;fill:var(--ink)}
