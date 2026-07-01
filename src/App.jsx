@@ -525,7 +525,7 @@ function LivingSky({ scene, info, cur, units, t, di, data }) {
 function Metric({ Icon, label, value, sub }) {
   return (
     <div className="dl-metric">
-      <div className="dl-metric-ic"><Icon size={17} strokeWidth={2.1} /></div>
+      <div className="dl-metric-ic"><Icon size={22} strokeWidth={2.1} /></div>
       <div className="dl-metric-body">
         <div className="dl-metric-label">{label}</div>
         <div className="dl-metric-val">{value} {sub && <span className="dl-metric-sub">{sub}</span>}</div>
@@ -547,7 +547,7 @@ function HourlyStrip({ data, units }) {
         return (
           <div className="dl-hour" key={i}>
             <div className="dl-hour-t">{k === 0 ? "Now" : hourLabel(h.time[i])}</div>
-            <Ic size={20} strokeWidth={2} className="dl-hour-ic" />
+            <Ic size={26} strokeWidth={2} className="dl-hour-ic" />
             <div className="dl-hour-temp">{fTemp(h.temperature_2m[i], units)}</div>
             <div className={`dl-hour-p ${p >= 50 ? "hot" : ""}`}>{p > 5 ? `${p}%` : ""}&nbsp;</div>
           </div>
@@ -575,7 +575,7 @@ function DailyList({ data, units, t }) {
         return (
           <div className="dl-day" key={iso}>
             <div className="dl-day-name">{i === di ? t.today : dayLabel(iso)}</div>
-            <Ic size={20} strokeWidth={2} className="dl-day-ic" />
+            <Ic size={24} strokeWidth={2} className="dl-day-ic" />
             <div className="dl-day-p">{p > 10 ? `${p}%` : ""}</div>
             <div className="dl-day-lo">{fTemp(lo, units)}</div>
             <div className="dl-day-bar"><span style={{ left: `${left}%`, width: `${Math.max(width, 8)}%` }} /></div>
@@ -791,26 +791,67 @@ function KenyaMapSVG({ locations, current, conditions, units, onSelect, reason }
   );
 }
 
-function MapView({ apiKey, locations, current, conditions, units, t, onSelect }) {
+function MapView({ apiKey, mapLocations, saved, current, conditions, units, t, lang, onSelect, onFocus }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+
+  // Manual location search — keyless Open-Meteo geocoding (worldwide).
+  useEffect(() => {
+    if (q.trim().length < 2) { setResults([]); return undefined; }
+    let alive = true;
+    setSearching(true);
+    const id = setTimeout(async () => {
+      try {
+        const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=en&format=json`);
+        const j = await r.json();
+        const list = (j.results || []).map((x) => ({
+          id: `geo-${x.id}`, name: x.name,
+          region: [x.admin1, x.country].filter(Boolean).join(", ") || "—",
+          lat: x.latitude, lon: x.longitude,
+        }));
+        if (alive) setResults(list);
+      } catch { if (alive) setResults([]); }
+      finally { if (alive) setSearching(false); }
+    }, 300);
+    return () => { alive = false; clearTimeout(id); };
+  }, [q]);
+
+  const pick = (loc) => { onFocus(loc); setResults([]); setQ(loc.name); };
+
   return (
     <div className="dl-stack">
       <div className="dl-card dl-map-card">
-        <div className="dl-card-head"><MapIcon size={16} /> <h3>{t.map_t}</h3></div>
-        <GoogleMapPanel apiKey={apiKey} locations={locations} current={current} conditions={conditions} units={units} onSelect={onSelect} />
+        <div className="dl-card-head"><MapIcon size={20} /> <h3>{t.map_t}</h3></div>
+        <div className="dl-mapsearch">
+          <Field icon={Search} value={q} placeholder={t.search_place}
+            onChange={(e) => setQ(e.target.value)} inputMode="search" />
+          {searching && <Loader2 size={16} className="dl-spin dl-mapsearch-spin" />}
+          {results.length > 0 && (
+            <div className="dl-search-res dl-mapsearch-res">
+              {results.map((r) => (
+                <button key={r.id} className="dl-search-row" onClick={() => pick(r)}>
+                  <MapPin size={16} /> <span>{r.name}</span><small>{r.region}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <GoogleMapPanel apiKey={apiKey} locations={mapLocations} current={current} conditions={conditions} units={units} onSelect={onFocus} />
       </div>
       <div className="dl-card">
-        <div className="dl-card-head"><MapPin size={16} /> <h3>{t.saved}</h3></div>
+        <div className="dl-card-head"><MapPin size={20} /> <h3>{t.saved}</h3></div>
         <div className="dl-loclist">
-          {(current ? [current, ...locations.filter((l) => l.id !== current.id)] : locations).map((l) => {
+          {(current ? [current, ...saved.filter((l) => l.id !== current.id)] : saved).map((l) => {
             const c = conditions[l.id];
             const info = c ? weatherInfo(c.code, c.isDay) : null;
             const Ic = info?.Icon || Cloud;
             return (
               <button key={l.id} className={`dl-locrow ${current && l.id === current.id ? "active" : ""}`} onClick={() => onSelect(l)}>
-                <Ic size={18} strokeWidth={2} />
+                <Ic size={22} strokeWidth={2} />
                 <div className="dl-locrow-main"><span>{l.name}</span><small>{l.region}</small></div>
                 <span className="dl-locrow-temp">{c ? fTemp(c.temp, units) : "—"}</span>
-                <ChevronRight size={16} className="dl-locrow-go" />
+                <ChevronRight size={18} className="dl-locrow-go" />
               </button>
             );
           })}
@@ -1358,6 +1399,18 @@ export default function App() {
     return base;
   }, [me, location]);
 
+  // Every marker to show on the map: the active location + all saved places +
+  // the full set of Kenyan towns, de-duplicated. This makes the Map view a real
+  // country-wide map rather than just the handful of saved pins.
+  const mapLocations = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const l of [location, ...savedLocs, ...LOCATIONS]) {
+      if (l && !seen.has(l.id)) { seen.add(l.id); out.push(l); }
+    }
+    return out;
+  }, [location, savedLocs]);
+
   const fetchWeather = useCallback(async (loc) => {
     setLoading(true); setError(false);
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
@@ -1448,6 +1501,8 @@ export default function App() {
   const sceneStyle = SCENES[scene];
 
   const selectLocation = (loc) => { updateMe({ location: loc }); setView("dashboard"); setNavOpen(false); };
+  // Set the active location but stay on the Map (used by search + map markers).
+  const focusLocation = (loc) => { updateMe({ location: loc }); setNavOpen(false); };
   const onLogout = () => { setSessionEmail(null); setData(null); setView("dashboard"); setPreviewRole(null); };
 
   const curUv = data ? (data.daily.uv_index_max?.[di] ?? 0) : 0;
@@ -1593,7 +1648,7 @@ export default function App() {
               )}
 
               {view === "map" && (
-                <MapView apiKey={me.mapsKey || ENV_MAPS_KEY} locations={savedLocs} current={location} conditions={conditions} units={units} t={t} onSelect={selectLocation} />
+                <MapView apiKey={me.mapsKey || ENV_MAPS_KEY} mapLocations={mapLocations} saved={savedLocs} current={location} conditions={conditions} units={units} t={t} lang={lang} onSelect={selectLocation} onFocus={focusLocation} />
               )}
 
               {view === "advice" && (
@@ -1711,7 +1766,7 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-seg-mini span{padding:9px 11px;color:var(--ink-faint)}
 .dl-seg-mini span.on{background:var(--azure);color:#fff}
 
-.dl-content{padding:clamp(14px,3vw,30px);max-width:1080px;width:100%;margin:0 auto}
+.dl-content{padding:clamp(12px,1.8vw,22px);max-width:1280px;width:100%;margin:0 auto}
 .dl-stack{display:flex;flex-direction:column;gap:clamp(12px,2vw,18px)}
 .dl-view-head{margin-bottom:4px}
 .dl-view-head h2{font-size:clamp(20px,3vw,26px)}
@@ -1762,10 +1817,10 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 
 /* metrics */
 .dl-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:clamp(8px,1.5vw,12px)}
-.dl-metric{display:flex;align-items:center;gap:11px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 14px;box-shadow:var(--shadow)}
-.dl-metric-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(56,189,248,.16),rgba(2,132,199,.12));color:var(--azure);flex-shrink:0}
+.dl-metric{display:flex;align-items:center;gap:13px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:15px 16px;box-shadow:var(--shadow)}
+.dl-metric-ic{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(56,189,248,.16),rgba(2,132,199,.12));color:var(--azure);flex-shrink:0}
 .dl-metric-label{font-size:11.5px;color:var(--ink-soft);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-.dl-metric-val{font-family:var(--mono);font-size:19px;font-weight:600;margin-top:2px}
+.dl-metric-val{font-family:var(--mono);font-size:22px;font-weight:600;margin-top:2px}
 .dl-metric-sub{font-family:var(--ui);font-size:11.5px;color:var(--ink-faint);font-weight:600}
 
 /* sign */
@@ -1778,7 +1833,7 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 
 /* hourly */
 .dl-hours{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
-.dl-hour{flex:0 0 auto;width:62px;display:flex;flex-direction:column;align-items:center;gap:7px;padding:11px 4px;border-radius:13px;background:var(--surface-2)}
+.dl-hour{flex:0 0 auto;width:74px;display:flex;flex-direction:column;align-items:center;gap:9px;padding:14px 6px;border-radius:14px;background:var(--surface-2)}
 .dl-hour-t{font-size:11.5px;color:var(--ink-soft);font-weight:600}
 .dl-hour-ic{color:var(--azure)}
 .dl-hour-temp{font-family:var(--mono);font-weight:600;font-size:15px}
@@ -1842,8 +1897,12 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 /* map */
 .dl-map-card{padding-bottom:14px}
 .dl-gmap,.dl-svgmap-wrap{width:100%;border-radius:var(--r-sm);overflow:hidden}
-.dl-gmap{height:clamp(280px,42vw,420px);border:1px solid var(--line)}
-.dl-map-loading{height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--ink-soft);background:var(--surface-2);border-radius:var(--r-sm)}
+.dl-gmap{height:clamp(420px,64vh,720px);border:1px solid var(--line)}
+.dl-map-loading{height:clamp(420px,64vh,720px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--ink-soft);background:var(--surface-2);border-radius:var(--r-sm)}
+/* Manual location search on the map */
+.dl-mapsearch{position:relative;margin-bottom:12px;z-index:5}
+.dl-mapsearch-spin{position:absolute;right:14px;top:14px;color:var(--azure)}
+.dl-mapsearch-res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-lg);padding:6px;max-height:320px;overflow-y:auto;z-index:6}
 .dl-map-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:12px}
 .dl-svgmap{width:100%;height:auto;background:linear-gradient(180deg,#f3faff,#e8f4fe);border-radius:var(--r-sm);border:1px solid var(--line)}
 .dl-pin-temp{font-family:var(--mono);font-size:11px;font-weight:600;fill:var(--ink)}
