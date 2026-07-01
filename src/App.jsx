@@ -489,6 +489,17 @@ const CONSTELLATIONS = {
     ],
     edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 3]],
   },
+  cassiopeia: { // the "W"
+    stars: [{ x: 8, y: 40 }, { x: 30, y: 62 }, { x: 52, y: 38 }, { x: 72, y: 64 }, { x: 92, y: 36 }],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4]],
+  },
+  scorpius: { // curved tail
+    stars: [
+      { x: 16, y: 14, r: 1.7 }, { x: 26, y: 26 }, { x: 34, y: 40 }, { x: 40, y: 56 },
+      { x: 52, y: 66 }, { x: 66, y: 70 }, { x: 78, y: 60 }, { x: 80, y: 46 }, { x: 72, y: 36 },
+    ],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]],
+  },
 };
 
 function Constellation({ data, className, style }) {
@@ -550,34 +561,59 @@ function LocationSearch({ t, onPick, placeholder }) {
   );
 }
 
+const STAR_COLORS = ["#ffffff", "#ffffff", "#eef4ff", "#d6e4ff", "#c2d6ff", "#fff2d6", "#ffe4c2"];
+
 function LivingSky({ scene, info, cur, units, t, di, data, location }) {
   const isNight = scene.includes("night");
   const isRain = scene === "rain" || scene === "drizzle" || scene === "heavy-rain";
+  const drizzle = scene === "drizzle";
   const heavy = scene === "heavy-rain";
   const isThunder = scene === "thunder";
   const showClouds = scene === "cloudy" || scene === "fog" || scene.includes("partly") || isRain || isThunder;
   const isDayClear = (scene.includes("clear") || scene.includes("partly")) && !isNight;
-  const dropCount = heavy ? 110 : scene === "drizzle" ? 46 : 72;
   const Icon = info?.Icon || Cloud;
   const sunrise = data?.daily?.sunrise?.[di];
   const sunset = data?.daily?.sunset?.[di];
 
-  // Randomly generated placements/timing — regenerated whenever the scene changes,
-  // so every visit (and every weather change) looks a little different.
+  // Rainfall graded by intensity: drizzle < rain < heavy / thunder.
+  const rainCfg = drizzle
+    ? { count: 44, wMin: 0.8, wMax: 1.2, lenMin: 6, lenMax: 12, opMin: 0.22, opMax: 0.45, durMin: 0.9, durMax: 1.4 }
+    : (heavy || isThunder)
+      ? { count: 150, wMin: 1.6, wMax: 2.6, lenMin: 18, lenMax: 30, opMin: 0.55, opMax: 0.85, durMin: 0.36, durMax: 0.56 }
+      : { count: 92, wMin: 1, wMax: 2, lenMin: 12, lenMax: 20, opMin: 0.4, opMax: 0.65, durMin: 0.55, durMax: 0.82 };
+
+  // Clouds look different by scene: white by day, grey/heavy in rain, dim at night.
+  const cloudCol = (isRain || isThunder)
+    ? (heavy || isThunder ? "rgba(64,74,90,.96)" : "rgba(118,130,146,.94)")
+    : isNight ? "rgba(58,70,92,.82)" : "rgba(255,255,255,.92)";
+  const cloudCount = showClouds ? (scene === "cloudy" || heavy || isThunder ? 7 : 5) : 0;
+
+  const CKEYS = Object.keys(CONSTELLATIONS);
+
+  // Procedurally generated sky — regenerated whenever the scene changes.
   const fx = useMemo(() => ({
-    stars: Array.from({ length: 70 }, () => ({ left: rnd(0, 100), top: rnd(0, 94), delay: rnd(0, 5), dur: rnd(2.4, 5.5), size: rnd(1.4, 3) })),
-    drops: Array.from({ length: dropCount }, () => ({ left: rnd(-2, 100), delay: rnd(0, 2), dur: rnd(heavy ? 0.45 : 0.6, heavy ? 0.7 : 0.95), len: rnd(12, 22) })),
+    stars: Array.from({ length: 130 }, () => {
+      const size = Math.pow(rnd(0, 1), 2) * 2.4 + 0.6; // magnitude spread: many faint, few bright
+      const col = STAR_COLORS[Math.floor(rnd(0, STAR_COLORS.length))];
+      return { left: rnd(0, 100), top: rnd(0, 96), size, op: rnd(0.5, 1), delay: rnd(0, 6), dur: rnd(2.6, 6.5), col, glow: size > 2.2 };
+    }),
+    dust: Array.from({ length: 80 }, (_, i) => ({ left: rnd(6, 94), top: 6 + i * 0.6 + rnd(-6, 8), size: rnd(0.5, 1.2), op: rnd(0.12, 0.42), delay: rnd(0, 6), dur: rnd(3, 7) })),
+    drops: Array.from({ length: rainCfg.count }, () => ({ left: rnd(-2, 100), delay: rnd(0, 2), dur: rnd(rainCfg.durMin, rainCfg.durMax), len: rnd(rainCfg.lenMin, rainCfg.lenMax), w: rnd(rainCfg.wMin, rainCfg.wMax), op: rnd(rainCfg.opMin, rainCfg.opMax) })),
     birds: Array.from({ length: 6 }, () => ({ top: rnd(6, 40), dur: rnd(24, 46), delay: rnd(0, 30), w: rnd(15, 30), dip: rnd(-34, -8), flap: rnd(0.4, 0.7) })),
-    shooters: Array.from({ length: 5 }, () => ({ top: rnd(3, 46), left: rnd(15, 82), ang: rnd(16, 40), dist: rnd(340, 620), dur: rnd(6, 12), delay: rnd(0, 14) })),
+    // Fewer shooting stars, long gaps between them.
+    shooters: Array.from({ length: 2 }, () => ({ top: rnd(3, 38), left: rnd(20, 78), ang: rnd(18, 36), dist: rnd(360, 640), dur: rnd(16, 30), delay: rnd(4, 24) })),
+    constels: [...CKEYS].sort(() => Math.random() - 0.5).slice(0, 3).map((k) => ({
+      k, data: CONSTELLATIONS[k], top: rnd(5, 50), left: rnd(6, 64), size: rnd(96, 176), rot: rnd(-16, 16), op: rnd(0.6, 0.95),
+    })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [scene, heavy, dropCount]);
+  }), [scene]);
 
   return (
     <div className="dl-sky" aria-hidden="false">
       <div className="dl-skyfx" aria-hidden="true">
         {isDayClear && (
           <>
-            <div className="dl-sun"><span className="dl-sun-glow" /><span className="dl-sun-core" /></div>
+            <div className="dl-sun"><span className="dl-sun-rays" /><span className="dl-sun-glow" /><span className="dl-sun-core" /></div>
             {/* Birds gliding across the day sky */}
             <div className="dl-birds">
               {fx.birds.map((b, i) => (
@@ -590,36 +626,42 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
         )}
         {isNight && (
           <>
-            <div className="dl-moon" />
+            <div className="dl-milkyway" />
+            <div className="dl-moon"><span className="dl-moon-glow" /></div>
             <div className="dl-stars">
+              {fx.dust.map((s, i) => (
+                <span key={`d${i}`} className="dust" style={{ left: `${s.left}%`, top: `${s.top}%`, width: `${s.size}px`, height: `${s.size}px`, opacity: s.op, animationDelay: `${s.delay}s`, animationDuration: `${s.dur}s` }} />
+              ))}
               {fx.stars.map((s, i) => (
-                <span key={i} style={{ left: `${s.left}%`, top: `${s.top}%`, width: `${s.size}px`, height: `${s.size}px`, animationDelay: `${s.delay}s`, animationDuration: `${s.dur}s` }} />
+                <span key={i} style={{ left: `${s.left}%`, top: `${s.top}%`, width: `${s.size}px`, height: `${s.size}px`, opacity: s.op, background: s.col, boxShadow: s.glow ? `0 0 ${s.size * 2.2}px ${s.col}` : "none", animationDelay: `${s.delay}s`, animationDuration: `${s.dur}s` }} />
               ))}
             </div>
-            {/* Real constellations */}
+            {/* Real constellations, randomly placed/rotated */}
             <div className="dl-constels">
-              <Constellation data={CONSTELLATIONS.orion} style={{ top: "12%", right: "9%", width: 132, height: 132 }} />
-              <Constellation data={CONSTELLATIONS.crux} style={{ top: "42%", left: "13%", width: 72, height: 96 }} />
-              <Constellation data={CONSTELLATIONS.dipper} style={{ top: "16%", left: "34%", width: 156, height: 96 }} />
+              {fx.constels.map((c) => (
+                <Constellation key={c.k} data={c.data} style={{ top: `${c.top}%`, left: `${c.left}%`, width: c.size, height: c.size, transform: `rotate(${c.rot}deg)`, opacity: c.op }} />
+              ))}
             </div>
-            {/* Shooting stars — random start, streak head leads the motion */}
+            {/* Shooting stars — rare, random start, head leads the motion */}
             <div className="dl-shooters">
               {fx.shooters.map((s, i) => (
                 <span key={i} className="dl-sh" style={{ top: `${s.top}%`, left: `${s.left}%`, "--ang": `${s.ang}deg`, "--dist": `${s.dist}px`, animationDuration: `${s.dur}s`, animationDelay: `${s.delay}s` }} />
               ))}
             </div>
+            <div className="dl-atmos" />
           </>
         )}
-        {showClouds && (
-          <div className="dl-clouds">
-            <span className="dl-cloud c1" /><span className="dl-cloud c2" /><span className="dl-cloud c3" />
-            <span className="dl-cloud c4" /><span className="dl-cloud c5" />
+        {cloudCount > 0 && (
+          <div className="dl-clouds" style={{ "--cloud-col": cloudCol }}>
+            {Array.from({ length: cloudCount }).map((_, i) => (
+              <span key={i} className={`dl-cloud c${(i % 7) + 1}`} />
+            ))}
           </div>
         )}
         {(isRain || isThunder) && (
           <div className="dl-rain">
             {fx.drops.map((d, i) => (
-              <span key={i} style={{ left: `${d.left}%`, height: `${d.len}px`, animationDelay: `${d.delay}s`, animationDuration: `${d.dur}s` }} />
+              <span key={i} style={{ left: `${d.left}%`, height: `${d.len}px`, width: `${d.w}px`, opacity: d.op, animationDelay: `${d.delay}s`, animationDuration: `${d.dur}s` }} />
             ))}
           </div>
         )}
@@ -1523,6 +1565,9 @@ export default function App() {
 
   // Dark mode: apply the user's theme (light/dark/auto) to <html data-theme>.
   const theme = me?.theme || "auto";
+  const resolvedTheme = theme === "auto"
+    ? (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : theme;
   useEffect(() => {
     const root = document.documentElement;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1694,6 +1739,10 @@ export default function App() {
             <MapPin size={15} /> <span>{location.name}</span><small>{location.region}</small>
           </button>
           <div className="dl-top-actions">
+            <button className="dl-icbtn" title={resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+              onClick={() => updateMe({ theme: resolvedTheme === "dark" ? "light" : "dark" })}>
+              {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <button className="dl-icbtn" title={t.refresh} onClick={() => fetchWeather(location)}><RefreshCw size={16} className={loading ? "dl-spin" : ""} /></button>
             <button className="dl-seg-mini">
               <span className={lang === "en" ? "on" : ""} onClick={() => { setLang("en"); updateMe({ lang: "en" }); }}>EN</span>
@@ -1986,15 +2035,29 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-rise.sunset>svg{color:#FF7E4B}
 .dl-rise.sunset .dl-rise-label{color:#7a2f12}
 
-.dl-sun{position:absolute;top:8%;right:9%;width:96px;height:96px}
-.dl-sun-core{position:absolute;inset:24px;border-radius:50%;background:radial-gradient(circle,#FFF1C2,var(--sun) 70%);box-shadow:0 0 40px rgba(253,184,19,.7)}
-.dl-sun-glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(253,184,19,.5),transparent 68%);animation:pulse 5s ease-in-out infinite}
+.dl-sun{position:absolute;top:8%;right:9%;width:108px;height:108px}
+.dl-sun-core{position:absolute;inset:30px;border-radius:50%;background:radial-gradient(circle,#FFF7DD,#FFF1C2 40%,var(--sun) 72%);box-shadow:0 0 48px rgba(253,184,19,.8),0 0 90px rgba(253,184,19,.35)}
+.dl-sun-glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(253,184,19,.5),transparent 66%);animation:pulse 5s ease-in-out infinite}
+.dl-sun-rays{position:absolute;inset:-40%;border-radius:50%;animation:spin 60s linear infinite;
+  background:conic-gradient(from 0deg,rgba(255,241,194,.32) 0deg 6deg,transparent 6deg 30deg,rgba(255,241,194,.24) 30deg 36deg,transparent 36deg 60deg,rgba(255,241,194,.3) 60deg 66deg,transparent 66deg 90deg,rgba(255,241,194,.22) 90deg 96deg,transparent 96deg 120deg,rgba(255,241,194,.3) 120deg 126deg,transparent 126deg 150deg,rgba(255,241,194,.24) 150deg 156deg,transparent 156deg 180deg,rgba(255,241,194,.32) 180deg 186deg,transparent 186deg 210deg,rgba(255,241,194,.24) 210deg 216deg,transparent 216deg 240deg,rgba(255,241,194,.3) 240deg 246deg,transparent 246deg 270deg,rgba(255,241,194,.22) 270deg 276deg,transparent 276deg 300deg,rgba(255,241,194,.3) 300deg 306deg,transparent 306deg 330deg,rgba(255,241,194,.24) 330deg 336deg,transparent 336deg 360deg);
+  -webkit-mask:radial-gradient(circle,transparent 30%,#000 42%,transparent 78%);mask:radial-gradient(circle,transparent 30%,#000 42%,transparent 78%)}
 @keyframes pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.12);opacity:1}}
-.dl-moon{position:absolute;top:11%;right:12%;width:58px;height:58px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fdfdff,#cdd7e8);box-shadow:0 0 30px rgba(205,215,232,.5),inset -10px -8px 0 rgba(120,135,165,.28)}
-.dl-stars span{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;opacity:.85;animation:twinkle 3.5s ease-in-out infinite}
-@keyframes twinkle{0%,100%{opacity:.25}50%{opacity:.95}}
+.dl-moon{position:absolute;top:11%;right:12%;width:62px;height:62px;border-radius:50%;
+  background:radial-gradient(circle at 36% 34%,#ffffff,#e3e9f5 55%,#c2cde0);
+  box-shadow:0 0 34px rgba(205,215,232,.55),inset -12px -9px 0 rgba(120,135,165,.26)}
+.dl-moon::before,.dl-moon::after{content:"";position:absolute;border-radius:50%;background:rgba(150,162,186,.35)}
+.dl-moon::before{width:12px;height:12px;top:14px;left:16px}
+.dl-moon::after{width:8px;height:8px;top:34px;left:34px;box-shadow:-14px -6px 0 -1px rgba(150,162,186,.3)}
+.dl-moon-glow{position:absolute;inset:-60%;border-radius:50%;background:radial-gradient(circle,rgba(226,233,245,.28),transparent 62%)}
+/* Milky Way band + starry depth */
+.dl-milkyway{position:absolute;left:-10%;right:-10%;top:8%;height:46%;transform:rotate(-18deg);pointer-events:none;filter:blur(6px);opacity:.5;
+  background:radial-gradient(60% 100% at 50% 50%,rgba(180,200,255,.22),rgba(200,180,255,.10) 55%,transparent 75%)}
+.dl-atmos{position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 80% at 50% 0%,transparent 55%,rgba(2,10,22,.45) 100%)}
+.dl-stars span{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;animation:twinkle 3.5s ease-in-out infinite}
+.dl-stars span.dust{background:#dfe8ff;animation-name:twinkle}
+@keyframes twinkle{0%,100%{opacity:.28;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
 .dl-clouds{position:absolute;inset:0}
-.dl-cloud{position:absolute;background:rgba(255,255,255,.9);border-radius:100px;filter:blur(.4px);box-shadow:0 8px 24px rgba(11,37,64,.08)}
+.dl-cloud{position:absolute;background:var(--cloud-col,rgba(255,255,255,.9));border-radius:100px;filter:blur(.5px);box-shadow:0 10px 30px rgba(11,37,64,.12)}
 .dl-cloud::before,.dl-cloud::after{content:"";position:absolute;background:inherit;border-radius:50%}
 /* Clouds drift horizontally (translate) AND bob vertically (transform) for a
    floatier feel; the two properties stack without conflicting. */
@@ -2008,7 +2071,11 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-cloud.c4::before{width:66px;height:66px;top:-28px;left:26px}.dl-cloud.c4::after{width:50px;height:50px;top:-18px;left:78px}
 .dl-cloud.c5{width:100px;height:28px;top:80%;translate:-120px 0;opacity:.55;animation:cloudmove 50s linear infinite 20s, cloudbob 10s ease-in-out infinite 3s}
 .dl-cloud.c5::before{width:44px;height:44px;top:-18px;left:18px}.dl-cloud.c5::after{width:34px;height:34px;top:-12px;left:52px}
-@keyframes cloudmove{from{translate:-180px 0}to{translate:calc(100vw + 260px) 0}}
+.dl-cloud.c6{width:170px;height:46px;top:33%;translate:-190px 0;opacity:.68;animation:cloudmove 64s linear infinite 9s, cloudbob 12s ease-in-out infinite 2s}
+.dl-cloud.c6::before{width:74px;height:74px;top:-32px;left:30px}.dl-cloud.c6::after{width:56px;height:56px;top:-22px;left:90px}
+.dl-cloud.c7{width:130px;height:36px;top:52%;translate:-150px 0;opacity:.6;animation:cloudmove 54s linear infinite 26s, cloudbob 9s ease-in-out infinite 4s}
+.dl-cloud.c7::before{width:58px;height:58px;top:-24px;left:22px}.dl-cloud.c7::after{width:44px;height:44px;top:-16px;left:66px}
+@keyframes cloudmove{from{translate:-190px 0}to{translate:calc(100vw + 280px) 0}}
 @keyframes cloudbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
 .dl-rain{position:absolute;inset:0}
 .dl-rain span{position:absolute;top:-14%;width:2px;height:16px;background:linear-gradient(transparent,rgba(255,255,255,.75));border-radius:2px;animation:fall linear infinite}
@@ -2027,7 +2094,7 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 
 /* Real constellations (night) */
 .dl-constels{position:absolute;inset:0;opacity:.9}
-.dl-constel{position:absolute;overflow:visible}
+.dl-constel{position:absolute;overflow:visible;transform-box:border-box;transform-origin:center}
 .dl-constel line{stroke:rgba(255,255,255,.3);stroke-width:.45}
 .dl-constel circle{fill:#fff;filter:drop-shadow(0 0 3px rgba(255,255,255,.9));animation:twinkle 4.5s ease-in-out infinite}
 
