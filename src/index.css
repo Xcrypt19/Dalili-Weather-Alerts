@@ -1,0 +1,37 @@
+/* Minimal global reset. The Dalili design system (fonts, variables, component
+   styles) is injected by the App component itself, so this file only handles
+   the base reset and prevents a white flash before the app mounts. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  /* Sky-toned base so there is no dark flash before the app mounts and any
+     overscroll area matches the in-app sky gradient. */
+  background: linear-gradient(180deg, #eaf5fe 0%, #ddeefb 100%);
+  color: #0b2540;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Respect users who prefer reduced motion at the document level too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
