@@ -361,6 +361,17 @@ function advisoriesFor(role, data, lang) {
   const cur = data.current, d = data.daily, h = data.hourly;
   const di = nowDayIndex(d.time);
   const i0 = nowHourIndex(h.time);
+  const pick = (en, sw) => (lang === "sw" ? sw : en);
+
+  const H = 24;
+  const probs = (h.precipitation_probability || []).slice(i0, i0 + H);
+  const precips = (h.precipitation || []).slice(i0, i0 + H);
+  const winds = (h.wind_speed_10m || []).slice(i0, i0 + H);
+  const timeAt = (k) => hourLabel(h.time?.[i0 + Math.max(0, Math.min(k, (h.time.length - 1 - i0)))] || h.time?.[i0]);
+  const inHrs = (k) => (k <= 0 ? pick("now", "sasa")
+    : k === 1 ? pick("within the hour", "ndani ya saa moja")
+    : pick(`in ~${k} hrs (around ${timeAt(k)})`, `baada ya ~saa ${k} (karibu ${timeAt(k)})`));
+
   const rainToday = d.precipitation_sum?.[di] ?? 0;
   const rainProb = d.precipitation_probability_max?.[di] ?? 0;
   const windNow = cur.wind_speed_10m ?? 0;
@@ -368,97 +379,195 @@ function advisoriesFor(role, data, lang) {
   const uv = d.uv_index_max?.[di] ?? 0;
   const tMax = d.temperature_2m_max?.[di] ?? cur.temperature_2m;
   const tMin = d.temperature_2m_min?.[di] ?? cur.temperature_2m;
-  const next12 = h.precipitation_probability.slice(i0, i0 + 12);
-  const dryHours = next12.reduce((a, p, idx) => (p < 30 ? a.concat(idx) : a), []);
+  const feels = cur.apparent_temperature ?? cur.temperature_2m;
+  const humidity = round(cur.relative_humidity_2m ?? 0);
+  const dir = compass(cur.wind_direction_10m ?? 0);
+  const vis = cur.visibility != null ? round(cur.visibility / 1000) : null;
+  const clouds = round(cur.cloud_cover ?? 0);
+  const rainingNow = (cur.precipitation || 0) > 0.05;
+  const next24mm = round(precips.reduce((a, b) => a + (b || 0), 0));
+  const peakProb = probs.length ? Math.max(...probs) : rainProb;
   const season = kenyaSeason();
-  const pick = (en, sw) => (lang === "sw" ? sw : en);
-  const card = (Icon, te, ts, be, bs, tone) =>
-    ({ Icon, title: pick(te, ts), body: pick(be, bs), tone });
+
+  // Rain start / stop timing
+  const startIdx = probs.findIndex((p) => p >= 55);
+  const stopIdx = rainingNow ? probs.findIndex((p, k) => k > 0 && p < 30) : -1;
+  // Longest dry window in the next 24 h
+  let bestStart = -1, bestLen = 0, cs = -1, cl = 0;
+  probs.forEach((p, k) => {
+    if (p < 30) { if (cs < 0) cs = k; cl++; if (cl > bestLen) { bestLen = cl; bestStart = cs; } }
+    else { cs = -1; cl = 0; }
+  });
+  // Peak wind hour
+  let pw = windNow, pwi = 0;
+  winds.forEach((w, k) => { if ((w || 0) > pw) { pw = w; pwi = k; } });
+  // Week wettest / driest
+  const week = (d.time || []).map((iso, i) => ({
+    label: i === di ? pick("today", "leo") : dayLabel(iso, lang),
+    mm: d.precipitation_sum?.[i] ?? 0, prob: d.precipitation_probability_max?.[i] ?? 0,
+  })).slice(di);
+  const wettest = week.reduce((a, b) => (b.mm > a.mm ? b : a), week[0] || { mm: 0, label: "" });
+  const driest = week.reduce((a, b) => (b.mm < a.mm ? b : a), week[0] || { mm: 0, label: "" });
+
+  // Reusable, data-rich sentences
+  const rainTiming = rainingNow
+    ? (stopIdx > 0 ? pick(`Rain is falling now and should ease ${inHrs(stopIdx)}; roughly ${next24mm} mm more over 24 h.`, `Mvua inanyesha sasa na itapungua ${inHrs(stopIdx)}; takriban mm ${next24mm} zaidi katika saa 24.`)
+      : pick(`Rain is falling now and looks set to persist for several hours (~${next24mm} mm expected).`, `Mvua inanyesha sasa na itaendelea kwa saa kadhaa (~mm ${next24mm} zinatarajiwa).`))
+    : (startIdx >= 0 ? pick(`Dry for now, but rain becomes likely ${inHrs(startIdx)} at ${probs[startIdx]}% — about ${next24mm} mm over 24 h.`, `Kavu kwa sasa, lakini mvua ina uwezekano ${inHrs(startIdx)} kwa ${probs[startIdx]}% — takriban mm ${next24mm} katika saa 24.`)
+      : pick(`No significant rain in the next 24 h (peak chance ${peakProb}%).`, `Hakuna mvua kubwa katika saa 24 (kilele ${peakProb}%).`));
+  const dryWindow = bestLen >= 2
+    ? pick(`Longest dry window: ${timeAt(bestStart)}–${timeAt(bestStart + bestLen)} (~${bestLen} h) — best time for outdoor work.`, `Muda mrefu mkavu: ${timeAt(bestStart)}–${timeAt(bestStart + bestLen)} (~saa ${bestLen}) — bora kwa kazi za nje.`)
+    : pick("Few dry gaps in the next 24 h — plan tasks around passing showers.", "Nafasi chache kavu katika saa 24 — panga kazi kuzunguka manyunyu.");
+  const windLine = pick(`Wind ${round(windNow)} km/h from the ${dir}${gust > windNow + 8 ? `, gusting to ${round(gust)}` : ""}, peaking ~${round(pw)} km/h ${inHrs(pwi)}.`, `Upepo km ${round(windNow)}/saa kutoka ${dir}${gust > windNow + 8 ? `, vimbunga hadi ${round(gust)}` : ""}, kilele ~km ${round(pw)}/saa ${inHrs(pwi)}.`);
+  const uvLine = pick(`UV peaks near ${round(uv)} (${uvBand(uv)}) around midday${uv >= 8 ? " — limit direct sun 11am–3pm and reapply SPF30+ every 2 h." : " — a hat and sunscreen are enough."}`, `UV hufikia ~${round(uv)} (${uvBand(uv)}) mchana${uv >= 8 ? " — punguza jua 11am–3pm na paka SPF30+ kila saa 2." : " — kofia na kinga ya jua yatosha."}`);
+  const comfortLine = pick(`Feels like ${round(feels)}°C, humidity ${humidity}%. ${humidity > 75 ? "Muggy — hydrate often and take shade breaks." : humidity < 35 ? "Dry air — drink water and protect your skin." : "Comfortable humidity."}`, `Inahisi ${round(feels)}°C, unyevu ${humidity}%. ${humidity > 75 ? "Kunata — kunywa maji mara kwa mara na pumzika kivulini." : humidity < 35 ? "Hewa kavu — kunywa maji na kinga ngozi." : "Unyevu wa kustarehesha."}`);
+  const weekLine = pick(`Week ahead: wettest ${wettest.label} (~${round(wettest.mm)} mm), driest ${driest.label} (~${round(driest.mm)} mm).`, `Wiki ijayo: mvua zaidi ${wettest.label} (~mm ${round(wettest.mm)}), kavu zaidi ${driest.label} (~mm ${round(driest.mm)}).`);
+
+  const card = (Icon, te, ts, be, bs, tone) => ({ Icon, title: pick(te, ts), body: pick(be, bs), tone });
   const cards = [];
+  const wetTone = peakProb > 60 || rainToday >= 10 ? "alert" : peakProb > 40 ? "caution" : "good";
 
   if (role === "mkulima") {
-    if (gust > 20 || rainProb > 50)
-      cards.push(card(Wind, "Hold off spraying", "Subiri kunyunyizia",
-        `Wind ${round(gust)} km/h or rain (${rainProb}% today) will cause drift and wash-off. Wait for a calm, dry window.`,
-        `Upepo km ${round(gust)}/saa au mvua (${rainProb}% leo) itasambaza dawa. Subiri muda tulivu, kavu.`, "caution"));
-    else
-      cards.push(card(Sprout, "Good spraying window", "Muda mzuri wa kunyunyizia",
-        `Calm and dry now — suitable for foliar sprays. Aim for early morning before winds pick up.`,
-        `Tulivu na kavu sasa — yafaa kwa dawa za majani. Lenga asubuhi kabla upepo haujaongezeka.`, "good"));
-    if (rainToday >= 5)
-      cards.push(card(CloudRain, "Skip irrigation today", "Ruka umwagiliaji leo",
-        `~${round(rainToday)} mm of rain expected — soil moisture should be replenished naturally.`,
-        `~mm ${round(rainToday)} za mvua zinatarajiwa — unyevu wa udongo utajaa wenyewe.`, "good"));
-    else
-      cards.push(card(Droplets, "Irrigation may be needed", "Umwagiliaji waweza kuhitajika",
-        `Little rain today (${round(rainToday)} mm). Check topsoil and irrigate young crops in the cool hours.`,
-        `Mvua kidogo leo (mm ${round(rainToday)}). Kagua udongo na umwagilie mimea michanga nyakati za baridi.`, "caution"));
-    cards.push(card(CalendarDays, `${season.en} planning`, `Mpango wa ${season.sw}`,
-      season.tone === "wet"
-        ? "We are in a rainy season — favour planting, top-dressing and weeding around reliable rains."
-        : "Drier season — prioritise water-conserving practices, mulching and drought-tolerant varieties.",
-      season.tone === "wet"
-        ? "Tuko msimu wa mvua — pendelea kupanda, kuongeza mbolea na kupalilia karibu na mvua za uhakika."
-        : "Msimu wa ukame — tanguliza kuhifadhi maji, matandazo na mbegu zinazostahimili ukame.", "neutral"));
+    const sprayOk = gust < 15 && !rainingNow && (startIdx < 0 || startIdx >= 3);
+    cards.push(card(sprayOk ? Sprout : Wind, "Spraying & foliar feeding", "Kunyunyizia na kulisha majani",
+      sprayOk
+        ? `Conditions are suitable now: wind ${round(windNow)} km/h and no rain expected for at least 3 h. Spray early while air is still — finish before the wind peaks ~${round(pw)} km/h ${inHrs(pwi)}. Add a sticker/spreader if any rain is due, and avoid spraying within 4 h of the ${probs[startIdx] || 0}% shower risk.`
+        : `Hold off spraying: ${rainingNow ? "it is raining" : gust >= 15 ? `wind is ${round(gust)} km/h (drift risk)` : `rain is likely ${inHrs(startIdx)}`}. Chemicals will drift or wash off. ${dryWindow}`,
+      sprayOk
+        ? `Hali yafaa sasa: upepo km ${round(windNow)}/saa na hakuna mvua kwa angalau saa 3. Nyunyizia asubuhi ukiwa upepo mdogo — maliza kabla ya kilele ~km ${round(pw)}/saa ${inHrs(pwi)}. Ongeza kishikizi ikiwa mvua inatarajiwa.`
+        : `Ahirisha kunyunyizia: ${rainingNow ? "mvua inanyesha" : gust >= 15 ? `upepo ni km ${round(gust)}/saa (hatari ya kusambaa)` : `mvua ina uwezekano ${inHrs(startIdx)}`}. Dawa zitasambaa au kuoshwa. ${dryWindow}`,
+      sprayOk ? "good" : "caution"));
+
+    cards.push(card(rainToday >= 5 ? CloudRain : Droplets, "Irrigation plan", "Mpango wa umwagiliaji",
+      rainToday >= 5
+        ? `Skip irrigation today — about ${round(rainToday)} mm of rain (${rainProb}% chance) should recharge the topsoil. Check field drainage so young roots don't waterlog, and delay fertiliser until after the heaviest falls to prevent leaching.`
+        : `Little natural rain today (~${round(rainToday)} mm). With ${humidity}% humidity and ${round(tMax)}°C highs, evaporation will be high — irrigate young or shallow-rooted crops in the cool early morning or evening to cut losses, prioritising anything flowering or fruiting.`,
+      rainToday >= 5
+        ? `Ruka umwagiliaji leo — takriban mm ${round(rainToday)} za mvua (${rainProb}%) zitajaza udongo. Hakikisha mifereji ili mizizi isizame; ahirisha mbolea hadi baada ya mvua kubwa.`
+        : `Mvua kidogo leo (~mm ${round(rainToday)}). Kwa unyevu ${humidity}% na joto ${round(tMax)}°C, uvukizi utakuwa juu — mwagilia mimea michanga asubuhi au jioni.`,
+      "neutral"));
+
+    if (gust >= 35 || rainToday >= 20)
+      cards.push(card(AlertTriangle, "Protect crops & livestock", "Linda mazao na mifugo",
+        `${gust >= 35 ? `Strong winds (to ${round(gust)} km/h) ` : ""}${rainToday >= 20 ? `and heavy rain (~${round(rainToday)} mm) ` : ""}are likely. Stake tall crops, secure greenhouse covers and shade nets, clear drainage furrows now, and move livestock and stored harvest to sheltered high ground before it hits ${startIdx >= 0 ? inHrs(startIdx) : "today"}.`,
+        `${gust >= 35 ? `Upepo mkali (hadi km ${round(gust)}/saa) ` : ""}${rainToday >= 20 ? `na mvua kubwa (~mm ${round(rainToday)}) ` : ""}vinatarajiwa. Imarisha mimea mirefu, funga greenhouse, safisha mifereji, na hamisha mifugo na mavuno sehemu za juu kabla ya ${startIdx >= 0 ? inHrs(startIdx) : "leo"}.`,
+        "alert"));
+
+    cards.push(card(CalendarDays, `${season.en} field planning`, `Mpango wa shamba — ${season.sw}`,
+      `${weekLine} ${season.tone === "wet"
+        ? `We're in the ${season.en.toLowerCase()} — time land prep, planting and top-dressing to just before the wettest day so seed and fertiliser aren't washed away.`
+        : `It's the ${season.en.toLowerCase()} — favour mulching, water harvesting and drought-tolerant varieties, and schedule any irrigation for the driest days.`}`,
+      `${weekLine} ${season.tone === "wet"
+        ? `Tuko ${season.sw} — panga kulima na kupanda kabla kidogo ya siku ya mvua zaidi ili mbegu na mbolea zisisombwe.`
+        : `Ni ${season.sw} — pendelea matandazo, kuvuna maji na mbegu zinazostahimili ukame.`}`,
+      "neutral"));
   }
 
   if (role === "usafiri") {
-    if (rainToday >= 15 || rainProb > 60)
-      cards.push(card(Waves, "Flood-prone routes at risk", "Njia za mafuriko hatarini",
-        `Heavy rain (${round(rainToday)} mm, ${rainProb}% chance) — expect ponding on low roads and longer journey times.`,
-        `Mvua kubwa (mm ${round(rainToday)}, ${rainProb}%) — tarajia maji barabarani na safari ndefu.`, "alert"));
+    cards.push(card(Waves, "Road & flood risk", "Hatari ya barabara na mafuriko",
+      `${rainTiming} ${peakProb > 50 || rainToday >= 15
+        ? "Expect ponding on low-lying roads and underpasses, reduced grip and longer stopping distances — avoid flooded crossings, keep headlights on and leave extra following distance."
+        : "Roads should stay largely clear; normal caution is enough."}`,
+      `${rainTiming} ${peakProb > 50 || rainToday >= 15
+        ? "Tarajia maji barabarani na vichuguu, mtelezo na umbali mrefu wa kusimama — epuka maji, washa taa na acha nafasi zaidi."
+        : "Barabara zitakuwa salama kiasi; tahadhari ya kawaida yatosha."}`,
+      wetTone === "alert" ? "alert" : "caution"));
     cards.push(card(Clock, "Best departure windows", "Nyakati nzuri za kuondoka",
-      dryHours.length
-        ? `Driest hours ahead: ${dryHours.slice(0, 3).map((k) => hourLabel(h.time[i0 + k])).join(", ")}.`
-        : `Wet for the next several hours — build in buffer time and drive with lights on.`,
-      dryHours.length
-        ? `Saa kavu zaidi: ${dryHours.slice(0, 3).map((k) => hourLabel(h.time[i0 + k])).join(", ")}.`
-        : `Mvua kwa saa kadhaa — ongeza muda na endesha na taa.`, dryHours.length ? "good" : "caution"));
+      `${dryWindow} ${windLine} Schedule the most sensitive trips and deliveries into the dry window and pad your ETAs by 15–20% while it's wet.`,
+      `${dryWindow} ${windLine} Panga safari na usafirishaji muhimu kwa muda mkavu na ongeza muda wa kufika kwa 15–20% wakati wa mvua.`,
+      bestLen >= 2 ? "good" : "caution"));
+    cards.push(card(Eye, "Visibility & wind", "Mwonekano na upepo",
+      `${vis != null ? `Visibility ~${vis} km${vis < 3 ? " (poor — fog/heavy rain, slow right down and use hazards)" : "."} ` : ""}${gust >= 45 ? `High-sided vehicles beware crosswinds gusting ${round(gust)} km/h — grip the wheel firmly on exposed stretches and bridges.` : "Winds are manageable for driving."}`,
+      `${vis != null ? `Mwonekano ~km ${vis}${vis < 3 ? " (hafifu — punguza mwendo, washa taa za tahadhari)" : "."} ` : ""}${gust >= 45 ? `Magari marefu: tahadhari upepo wa kando km ${round(gust)}/saa madarajani.` : "Upepo unavumilika kwa kuendesha."}`,
+      (vis != null && vis < 3) || gust >= 45 ? "alert" : "neutral"));
   }
 
   if (role === "rubani") {
-    const vis = cur.visibility != null ? round(cur.visibility / 1000) : null;
-    cards.push(card(Eye, "Visibility & ceiling", "Mwonekano",
-      `${vis != null ? `Surface visibility ~${vis} km. ` : ""}Cloud cover ${round(cur.cloud_cover ?? 0)}%. Advisory only — file with official aviation briefings.`,
-      `${vis != null ? `Mwonekano ~km ${vis}. ` : ""}Mawingu ${round(cur.cloud_cover ?? 0)}%. Ni mwongozo tu — tegemea taarifa rasmi za anga.`, vis != null && vis < 5 ? "alert" : "neutral"));
-    cards.push(card(Compass, "Wind & gusts", "Upepo na vimbunga",
-      `Surface wind ${round(windNow)} km/h from ${compass(cur.wind_direction_10m ?? 0)}, gusts ${round(gust)} km/h. Watch crosswind on approach.`,
-      `Upepo km ${round(windNow)}/saa kutoka ${compass(cur.wind_direction_10m ?? 0)}, vimbunga km ${round(gust)}/saa. Angalia upepo wa kando wakati wa kutua.`, gust > 35 ? "caution" : "good"));
+    cards.push(card(Eye, "Visibility & ceiling", "Mwonekano na dari",
+      `${vis != null ? `Surface visibility ~${vis} km. ` : ""}Cloud cover ${clouds}%${clouds > 70 ? " — expect a low, broken/overcast ceiling; plan for an instrument approach and a solid alternate." : " — generally workable ceiling."} Humidity ${humidity}% raises fog/mist risk near dawn. Advisory only — always confirm with official METAR/TAF and NOTAMs.`,
+      `${vis != null ? `Mwonekano ~km ${vis}. ` : ""}Mawingu ${clouds}%${clouds > 70 ? " — tarajia dari ya chini; panga instrument approach na alternate." : " — dari inafaa."} Unyevu ${humidity}% waongeza hatari ya ukungu alfajiri. Mwongozo tu — thibitisha METAR/TAF na NOTAM rasmi.`,
+      (vis != null && vis < 5) || clouds > 80 ? "alert" : "neutral"));
+    cards.push(card(Compass, "Wind, gusts & crosswind", "Upepo, vimbunga na crosswind",
+      `Surface wind ${round(windNow)} km/h from the ${dir}, gusting ${round(gust)} km/h, peaking ~${round(pw)} km/h ${inHrs(pwi)}. Compute your crosswind component for the active runway and re-check gust spread before departure and on approach; ${gust >= 40 ? "gusts are significant today — brief a go-around." : "conditions are within typical limits."}`,
+      `Upepo km ${round(windNow)}/saa kutoka ${dir}, vimbunga km ${round(gust)}/saa, kilele ~km ${round(pw)}/saa ${inHrs(pwi)}. Hesabu crosswind kwa njia ya kutua; ${gust >= 40 ? "vimbunga ni vikubwa leo — jiandae kwa go-around." : "hali iko ndani ya mipaka ya kawaida."}`,
+      gust >= 40 ? "caution" : "good"));
+    cards.push(card(CloudLightning, "Convective & density-altitude", "Dhoruba na density-altitude",
+      `${peakProb > 50 ? `Convective activity is likely (${peakProb}% ${startIdx >= 0 ? inHrs(startIdx) : "today"}) — expect turbulence, wind shear and rapid ceiling drops; give build-ups a wide berth.` : "Low convective risk."} With highs near ${round(tMax)}°C, watch density altitude on take-off performance — recalculate for the hottest part of the day.`,
+      `${peakProb > 50 ? `Dhoruba zina uwezekano (${peakProb}% ${startIdx >= 0 ? inHrs(startIdx) : "leo"}) — tarajia mtikisiko na wind shear; epuka mawingu makubwa.` : "Hatari ndogo ya dhoruba."} Kwa joto ~${round(tMax)}°C, angalia density altitude kwenye utendaji wa kuondoka.`,
+      peakProb > 50 ? "caution" : "neutral"));
   }
 
   if (role === "mpanda") {
     cards.push(card(Umbrella, "Rain timing on the trail", "Mvua njiani",
-      rainProb > 40
-        ? `${rainProb}% chance today. Start early and plan to be off exposed ridges before afternoon build-up.`
-        : `Low rain chance (${rainProb}%). Conditions look favourable for the trail.`,
-      rainProb > 40
-        ? `${rainProb}% leo. Anza mapema, shuka kutoka vilele kabla ya mvua za mchana.`
-        : `Uwezekano mdogo wa mvua (${rainProb}%). Hali nzuri kwa safari.`, rainProb > 40 ? "caution" : "good"));
-    cards.push(card(Sun, "Sun & temperature", "Jua na joto",
-      `High ${round(tMax)}°C, low ${round(tMin)}°C, UV up to ${round(uv)}. Carry layers and sun protection.`,
-      `Juu ${round(tMax)}°C, chini ${round(tMin)}°C, UV hadi ${round(uv)}. Beba nguo za tabaka na kinga ya jua.`, uv >= 8 ? "caution" : "neutral"));
+      `${rainTiming} ${peakProb > 40
+        ? `Start before dawn and aim to be off exposed ridges and summits before the afternoon build-up; set a firm turn-around time and pack a waterproof shell.`
+        : `A good window for the trail — still carry a light shell as mountain weather turns fast.`} ${dryWindow}`,
+      `${rainTiming} ${peakProb > 40
+        ? `Anza kabla ya alfajiri na ushuke kutoka vilele kabla ya mvua za mchana; weka muda wa kurudi na beba koti la mvua.`
+        : `Muda mzuri wa safari — beba koti jepesi kwani hali ya mlima hubadilika haraka.`} ${dryWindow}`,
+      peakProb > 40 ? "caution" : "good"));
+    cards.push(card(Sun, "Sun, heat & layering", "Jua, joto na mavazi",
+      `High ${round(tMax)}°C, low ${round(tMin)}°C — a ${round(tMax - tMin)}° swing, so layer up. ${uvLine} ${comfortLine} Carry at least 2–3 L of water for a full-day hike.`,
+      `Juu ${round(tMax)}°C, chini ${round(tMin)}°C — tofauti ya ${round(tMax - tMin)}°, vaa tabaka. ${uvLine} ${comfortLine} Beba angalau lita 2–3 za maji.`,
+      uv >= 8 ? "caution" : "neutral"));
+    cards.push(card(Wind, "Exposure & wind chill", "Upepo na baridi",
+      `${windLine} On ridgelines wind chill will make it feel colder than ${round(tMin)}°C — a windproof layer and gloves are worth the pack weight${gust >= 40 ? "; gusts this strong make scrambling and exposed traverses risky." : "."}`,
+      `${windLine} Kwenye vilele upepo utafanya kuhisi baridi zaidi ya ${round(tMin)}°C — beba koti la upepo na glavu${gust >= 40 ? "; vimbunga hivi hufanya kupanda miamba kuwa hatari." : "."}`,
+      gust >= 40 ? "alert" : "neutral"));
   }
 
   if (role === "matukio") {
-    cards.push(card(CalendarDays, "Outdoor event comfort", "Hali ya tukio la nje",
-      `Today: ${round(tMax)}°C high, ${rainProb}% rain chance, wind ${round(windNow)} km/h. ${rainProb > 50 ? "Have a wet-weather contingency ready." : "Conditions look manageable for outdoor gatherings."}`,
-      `Leo: ${round(tMax)}°C, ${rainProb}% mvua, upepo km ${round(windNow)}/saa. ${rainProb > 50 ? "Andaa mpango wa mvua." : "Hali yafaa kwa matukio ya nje."}`, rainProb > 50 ? "caution" : "good"));
-    if (gust > 30)
-      cards.push(card(Wind, "Secure tents and staging", "Imarisha mahema",
-        `Gusts up to ${round(gust)} km/h — anchor marquees, banners and lighting rigs.`,
-        `Vimbunga hadi km ${round(gust)}/saa — funga mahema, mabango na taa.`, "alert"));
+    cards.push(card(CalendarDays, "Event-day comfort & timing", "Starehe na muda wa tukio",
+      `Expect ${round(tMax)}°C, ${comfortLine} ${rainTiming} ${peakProb > 50
+        ? `Have a wet-weather plan ready (marquees, covered walkways) and, if flexible, aim the main programme at the dry window: ${bestLen >= 2 ? `${timeAt(bestStart)}–${timeAt(bestStart + bestLen)}.` : "keep it short between showers."}`
+        : `Conditions look good for an outdoor gathering — provide shade and water for guests.`}`,
+      `Tarajia ${round(tMax)}°C, ${comfortLine} ${rainTiming} ${peakProb > 50
+        ? `Andaa mpango wa mvua (mahema, njia zenye paa); lenga programu kuu kwenye muda mkavu.`
+        : `Hali nzuri kwa tukio la nje — weka kivuli na maji kwa wageni.`}`,
+      wetTone));
+    if (gust >= 30)
+      cards.push(card(Wind, "Rigging & safety", "Usalama wa vifaa",
+        `${windLine} Anchor marquees, banners, staging and lighting rigs properly, weight down light furniture, and assign someone to monitor structures — winds gusting ${round(gust)} km/h can lift an unsecured tent.`,
+        `${windLine} Funga mahema, mabango na taa vizuri, weka uzito kwenye viti vyepesi, na mtu afuatilie miundo — vimbunga km ${round(gust)}/saa vyaweza kuinua hema.`,
+        "alert"));
+    cards.push(card(Lightbulb, "Guest logistics", "Mipango ya wageni",
+      `${peakProb > 40 ? "Advise guests to bring rain covers and allow extra travel time; " : ""}position water and shade for ${round(tMax)}°C conditions, and share the ${bestLen >= 2 ? "best dry window with vendors and performers." : "shower timing so vendors can plan cover."}`,
+      `${peakProb > 40 ? "Waambie wageni kubeba kinga ya mvua na kuongeza muda wa safari; " : ""}weka maji na kivuli kwa joto ${round(tMax)}°C, na shiriki muda mkavu na wauzaji.`,
+      "neutral"));
   }
 
   if (role === "biashara") {
-    cards.push(card(Building2, "Operations outlook", "Mtazamo wa biashara",
-      `${rainProb > 50 ? "Wet day likely — footfall may dip and deliveries could slow." : "Stable day — minimal weather disruption expected."} High ${round(tMax)}°C.`,
-      `${rainProb > 50 ? "Siku ya mvua — wateja na usafirishaji vyaweza kupungua." : "Siku tulivu — usumbufu mdogo."} Juu ${round(tMax)}°C.`, rainProb > 50 ? "caution" : "good"));
+    cards.push(card(Building2, "Operations & footfall", "Uendeshaji na wateja",
+      `${rainTiming} ${peakProb > 50
+        ? `Wet weather typically dips walk-in footfall and slows deliveries — staff the counter leaner during the wettest hours, push online/phone orders, and prep umbrellas or covered entry for customers.`
+        : `Stable trading conditions — minimal weather disruption; a good day for outdoor displays or promotions.`} Highs near ${round(tMax)}°C.`,
+      `${rainTiming} ${peakProb > 50
+        ? `Mvua hupunguza wateja na kuchelewesha usafirishaji — punguza wafanyakazi saa za mvua, himiza oda za simu/mtandao, na andaa mwavuli au lango lenye paa.`
+        : `Hali tulivu ya biashara — usumbufu mdogo; siku nzuri kwa maonyesho ya nje.`} Joto ~${round(tMax)}°C.`,
+      wetTone));
+    cards.push(card(Truck, "Deliveries & stock", "Usafirishaji na bidhaa",
+      `${dryWindow} Route perishable and time-critical deliveries through it, and if you handle moisture-sensitive stock, ${peakProb > 50 ? `cover loading bays before the ${peakProb}% rain ${startIdx >= 0 ? inHrs(startIdx) : ""}.` : "conditions are fine for normal handling."}`,
+      `${dryWindow} Panga usafirishaji wa bidhaa zinazoharibika kwa muda huo; ikiwa una bidhaa nyeti kwa unyevu, ${peakProb > 50 ? `funga sehemu za kupakia kabla ya mvua ya ${peakProb}% ${startIdx >= 0 ? inHrs(startIdx) : ""}.` : "hali inafaa kwa kazi ya kawaida."}`,
+      "neutral"));
+    cards.push(card(TrendingUp, "Week-ahead planning", "Mpango wa wiki",
+      `${weekLine} Line up outdoor work, promotions and big deliveries on the drier days, and build contingency around ${wettest.label}.`,
+      `${weekLine} Panga kazi za nje, matangazo na usafirishaji mkubwa kwa siku kavu, na weka mpango wa ziada kwa ${wettest.label}.`,
+      "neutral"));
   }
 
   if (role === "mtumiaji" || cards.length === 0) {
     cards.push(card(Info, "Plan your day", "Panga siku yako",
-      `${rainProb}% chance of rain, high ${round(tMax)}°C, UV up to ${round(uv)}. ${rainProb > 40 ? "Keep an umbrella handy." : "A good day to be outdoors."}`,
-      `${rainProb}% mvua, juu ${round(tMax)}°C, UV hadi ${round(uv)}. ${rainProb > 40 ? "Beba mwavuli." : "Siku nzuri ya kuwa nje."}`, "neutral"));
+      `${rainTiming} ${peakProb > 40 ? "Carry an umbrella or a light rain jacket" : "A good day to be outdoors"} — highs near ${round(tMax)}°C, lows ${round(tMin)}°C. ${comfortLine}`,
+      `${rainTiming} ${peakProb > 40 ? "Beba mwavuli au koti jepesi la mvua" : "Siku nzuri ya kuwa nje"} — joto ~${round(tMax)}°C, chini ${round(tMin)}°C. ${comfortLine}`,
+      peakProb > 40 ? "caution" : "good"));
+    cards.push(card(Sun, "Sun & comfort", "Jua na starehe",
+      `${uvLine} ${windLine}`,
+      `${uvLine} ${windLine}`,
+      uv >= 8 ? "caution" : "neutral"));
+    cards.push(card(CalendarDays, "The week ahead", "Wiki ijayo",
+      `${weekLine} Plan outdoor plans and laundry for the drier days.`,
+      `${weekLine} Panga shughuli za nje na kufua kwa siku kavu.`,
+      "neutral"));
   }
 
   return cards;
