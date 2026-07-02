@@ -94,6 +94,16 @@ const STR = {
     appearance: "Appearance", theme_light: "Light", theme_dark: "Dark", theme_auto: "Auto",
     save: "Save", saved_ok: "Saved", sign: "Dalili sign", impact: "What it means", action: "What to do",
     open_advice: "See advisories", reading: "Reading", current_loc: "Current",
+    hint_wind: "Wind speed and the direction it blows from.",
+    hint_humidity: "How much moisture is in the air — higher feels muggier.",
+    hint_uv: "Sun strength. 8+ is high — cover up and use sunscreen.",
+    hint_pressure: "Air pressure (hPa). Falling pressure often means worsening weather.",
+    hint_visibility: "How far you can clearly see. Low = fog, mist or heavy rain.",
+    hint_rain: "Rain measured in the last hour (mm).",
+    hint_hourly: "Temperature and chance of rain for each of the next 24 hours.",
+    hint_daily: "Each day's low–high temperature range and chance of rain for the week ahead.",
+    hint_sunrise: "Time the sun rises today.", hint_sunset: "Time the sun sets today.",
+    use_my_loc: "Use my current location",
   },
   sw: {
     tagline: "Soma anga, panga vyema", brand_sub: "Tahadhari za hali ya hewa · Kenya",
@@ -119,6 +129,16 @@ const STR = {
     appearance: "Muonekano", theme_light: "Mwangaza", theme_dark: "Giza", theme_auto: "Otomatiki",
     save: "Hifadhi", saved_ok: "Imehifadhiwa", sign: "Dalili", impact: "Maana yake", action: "Fanya hivi",
     open_advice: "Ona ushauri", reading: "Soma", current_loc: "Sasa",
+    hint_wind: "Kasi ya upepo na mwelekeo unakotoka.",
+    hint_humidity: "Kiasi cha unyevu hewani — juu zaidi huhisi kunata.",
+    hint_uv: "Nguvu ya jua. 8+ ni juu — jikinge na tumia kinga ya jua.",
+    hint_pressure: "Mgandamizo wa hewa (hPa). Kushuka mara nyingi huashiria hali mbaya.",
+    hint_visibility: "Umbali unaoweza kuona wazi. Chini = ukungu au mvua kubwa.",
+    hint_rain: "Mvua iliyopimwa saa iliyopita (mm).",
+    hint_hourly: "Joto na uwezekano wa mvua kwa kila saa katika saa 24 zijazo.",
+    hint_daily: "Kiwango cha joto (chini–juu) na uwezekano wa mvua kwa wiki nzima.",
+    hint_sunrise: "Wakati wa kuchomoza kwa jua leo.", hint_sunset: "Wakati wa kutua kwa jua leo.",
+    use_my_loc: "Tumia eneo langu la sasa",
   },
 };
 
@@ -189,8 +209,11 @@ function hourLabel(iso) {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, "0")}:00`;
 }
-function dayLabel(iso) {
-  return new Date(iso).toLocaleDateString("en-US", { weekday: "short" });
+const SW_DAYS = ["Jpl", "Jtt", "Jnne", "Jtno", "Alh", "Iju", "Jmos"]; // Sun..Sat
+function dayLabel(iso, lang = "en") {
+  const d = new Date(iso);
+  if (lang === "sw") return SW_DAYS[d.getDay()];
+  return d.toLocaleDateString("en-US", { weekday: "short" });
 }
 function timeOnly(iso) {
   const d = new Date(iso);
@@ -549,13 +572,45 @@ function LocationSearch({ t, onPick, placeholder }) {
     return () => { alive = false; clearTimeout(id); };
   }, [q]);
 
+  const [locating, setLocating] = useState(false);
+  const [geoErr, setGeoErr] = useState("");
   const pick = (loc) => { onPick(loc); setResults([]); setQ(loc.name); };
+
+  // Exact current location via the browser's GPS (FR-08).
+  const useMyLocation = () => {
+    setGeoErr("");
+    if (!navigator.geolocation) { setGeoErr(t._lang === "sw" ? "Kifaa hakiungi mkono GPS." : "GPS not supported."); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        let name = t.current_loc || "My location";
+        let region = "";
+        try {
+          const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`);
+          const j = await r.json();
+          name = j.city || j.locality || name;
+          region = j.principalSubdivision || j.countryName || "";
+        } catch { /* keep coordinates-only name */ }
+        onPick({ id: "current", name, region, lat: latitude, lon: longitude });
+        setQ(name);
+        setLocating(false);
+      },
+      () => { setLocating(false); setGeoErr(t._lang === "sw" ? "Imeshindwa kupata eneo. Ruhusu GPS." : "Couldn't get location. Allow GPS access."); },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
 
   return (
     <div className="dl-mapsearch">
-      <Field icon={Search} value={q} placeholder={placeholder || t.search_loc}
-        onChange={(e) => setQ(e.target.value)} inputMode="search" />
-      {searching && <Loader2 size={16} className="dl-spin dl-mapsearch-spin" />}
+      <div className="dl-searchrow">
+        <Field icon={Search} value={q} placeholder={placeholder || t.search_loc}
+          onChange={(e) => setQ(e.target.value)} inputMode="search" />
+        <button className="dl-gpsbtn" title={t.use_my_loc} onClick={useMyLocation} disabled={locating} aria-label={t.use_my_loc}>
+          {locating ? <Loader2 size={18} className="dl-spin" /> : <Crosshair size={18} />}
+        </button>
+      </div>
+      {geoErr && <div className="dl-inline-err"><AlertTriangle size={13} /> {geoErr}</div>}
       {results.length > 0 && (
         <div className="dl-search-res dl-mapsearch-res">
           {results.map((r) => (
@@ -588,7 +643,7 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
 
   // Rainfall graded by intensity: drizzle < rain < heavy / thunder.
   const rainCfg = drizzle
-    ? { count: 44, wMin: 0.8, wMax: 1.2, lenMin: 6, lenMax: 12, opMin: 0.22, opMax: 0.45, durMin: 0.9, durMax: 1.4 }
+    ? { count: 90, wMin: 1, wMax: 1.5, lenMin: 8, lenMax: 15, opMin: 0.35, opMax: 0.6, durMin: 0.85, durMax: 1.25 }
     : (heavy || isThunder)
       ? { count: 150, wMin: 1.6, wMax: 2.6, lenMin: 18, lenMax: 30, opMin: 0.55, opMax: 0.85, durMin: 0.36, durMax: 0.56 }
       : { count: 92, wMin: 1, wMax: 2, lenMin: 12, lenMax: 20, opMin: 0.4, opMax: 0.65, durMin: 0.55, durMax: 0.82 };
@@ -726,14 +781,14 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
 
         {/* Sunrise / sunset — labelled and colour-coded */}
         <div className="dl-sky-rise">
-          <div className="dl-rise sunrise">
+          <div className="dl-rise sunrise" title={t.hint_sunrise}>
             <Sunrise size={22} strokeWidth={2.2} />
             <div className="dl-rise-text">
               <span className="dl-rise-label">{t.sunrise}</span>
               <b>{sunrise ? timeOnly(sunrise) : "—"}</b>
             </div>
           </div>
-          <div className="dl-rise sunset">
+          <div className="dl-rise sunset" title={t.hint_sunset}>
             <Sunset size={22} strokeWidth={2.2} />
             <div className="dl-rise-text">
               <span className="dl-rise-label">{t.sunset}</span>
@@ -746,9 +801,9 @@ function LivingSky({ scene, info, cur, units, t, di, data, location }) {
   );
 }
 
-function Metric({ Icon, label, value, sub }) {
+function Metric({ Icon, label, value, sub, hint }) {
   return (
-    <div className="dl-metric">
+    <div className="dl-metric" title={hint}>
       <div className="dl-metric-ic"><Icon size={22} strokeWidth={2.1} /></div>
       <div className="dl-metric-body">
         <div className="dl-metric-label">{label}</div>
@@ -796,9 +851,13 @@ function DailyList({ data, units, t }) {
         const left = ((lo - minT) / (maxT - minT || 1)) * 100;
         const width = ((hi - lo) / (maxT - minT || 1)) * 100;
         const p = d.precipitation_probability_max[i];
+        const dayName = i === di ? t.today : dayLabel(iso, t._lang);
+        const rowHint = t._lang === "sw"
+          ? `${dayName}: ${fTemp(lo, units)}–${fTemp(hi, units)}, ${p}% uwezekano wa mvua`
+          : `${dayName}: ${fTemp(lo, units)}–${fTemp(hi, units)}, ${p}% chance of rain`;
         return (
-          <div className="dl-day" key={iso}>
-            <div className="dl-day-name">{i === di ? t.today : dayLabel(iso)}</div>
+          <div className="dl-day" key={iso} title={rowHint}>
+            <div className="dl-day-name">{dayName}</div>
             <Ic size={24} strokeWidth={2} className="dl-day-ic" />
             <div className="dl-day-p">{p > 10 ? `${p}%` : ""}</div>
             <div className="dl-day-lo">{fTemp(lo, units)}</div>
@@ -861,11 +920,11 @@ function Field({ icon: Ic, ...props }) {
 function TrendsView({ data, units, t, lang }) {
   const d = data.daily;
   const temp = d.time.map((iso, i) => ({
-    day: dayLabel(iso),
+    day: dayLabel(iso, lang),
     hi: units === "imperial" ? round(cToF(d.temperature_2m_max[i])) : round(d.temperature_2m_max[i]),
     lo: units === "imperial" ? round(cToF(d.temperature_2m_min[i])) : round(d.temperature_2m_min[i]),
   }));
-  const rain = d.time.map((iso, i) => ({ day: dayLabel(iso), mm: round(d.precipitation_sum[i] || 0) }));
+  const rain = d.time.map((iso, i) => ({ day: dayLabel(iso, lang), mm: round(d.precipitation_sum[i] || 0) }));
   const di = nowDayIndex(d.time);
   const season = kenyaSeason();
   return (
@@ -1907,21 +1966,21 @@ export default function App() {
                   )}
 
                   <div className="dl-metrics">
-                    <Metric Icon={Wind} label={t.wind} value={fWind(cur.wind_speed_10m, units)} sub={`${compass(cur.wind_direction_10m)}`} />
-                    <Metric Icon={Droplets} label={t.humidity} value={`${round(cur.relative_humidity_2m)}%`} />
-                    <Metric Icon={Sun} label={t.uv} value={round(curUv)} sub={uvBand(curUv)} />
-                    <Metric Icon={Gauge} label={t.pressure} value={`${round(cur.surface_pressure)}`} sub="hPa" />
-                    <Metric Icon={Eye} label={t.visibility} value={cur.visibility != null ? `${round(cur.visibility / 1000)}` : "—"} sub="km" />
-                    <Metric Icon={CloudRain} label={t.rain} value={`${(cur.precipitation || 0).toFixed(1)}`} sub="mm" />
+                    <Metric Icon={Wind} label={t.wind} value={fWind(cur.wind_speed_10m, units)} sub={`${compass(cur.wind_direction_10m)}`} hint={t.hint_wind} />
+                    <Metric Icon={Droplets} label={t.humidity} value={`${round(cur.relative_humidity_2m)}%`} hint={t.hint_humidity} />
+                    <Metric Icon={Sun} label={t.uv} value={round(curUv)} sub={uvBand(curUv)} hint={t.hint_uv} />
+                    <Metric Icon={Gauge} label={t.pressure} value={`${round(cur.surface_pressure)}`} sub="hPa" hint={t.hint_pressure} />
+                    <Metric Icon={Eye} label={t.visibility} value={cur.visibility != null ? `${round(cur.visibility / 1000)}` : "—"} sub="km" hint={t.hint_visibility} />
+                    <Metric Icon={CloudRain} label={t.rain} value={`${(cur.precipitation || 0).toFixed(1)}`} sub="mm" hint={t.hint_rain} />
                   </div>
 
                   <div className="dl-card">
-                    <div className="dl-card-head"><Clock size={16} /> <h3>{t.hourly}</h3></div>
+                    <div className="dl-card-head" title={t.hint_hourly}><Clock size={16} /> <h3>{t.hourly}</h3></div>
                     <HourlyStrip data={data} units={units} />
                   </div>
 
                   <div className="dl-card">
-                    <div className="dl-card-head"><CalendarDays size={16} /> <h3>{t.daily}</h3></div>
+                    <div className="dl-card-head" title={t.hint_daily}><CalendarDays size={16} /> <h3>{t.daily}</h3></div>
                     <DailyList data={data} units={units} t={t} />
                   </div>
 
@@ -2386,6 +2445,11 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-lpin-label{display:inline-block;margin-left:6px;font:600 11.5px var(--ui);color:var(--ink);background:rgba(255,255,255,.92);padding:1px 7px;border-radius:7px;box-shadow:0 1px 3px rgba(11,37,64,.25);white-space:nowrap;vertical-align:middle}
 /* Manual location search on the map (kept above the map layers) */
 .dl-mapsearch{position:relative;margin-bottom:12px;z-index:1000}
+.dl-searchrow{display:flex;gap:8px;align-items:stretch}
+.dl-searchrow .dl-field{flex:1}
+.dl-gpsbtn{flex:0 0 auto;width:48px;border-radius:12px;border:1.5px solid var(--sky);background:var(--surface);color:var(--azure);display:grid;place-items:center;transition:.16s}
+.dl-gpsbtn:hover{background:linear-gradient(120deg,var(--azure),var(--sky));color:#fff}
+.dl-gpsbtn:disabled{opacity:.6;cursor:not-allowed}
 .dl-mapsearch-spin{position:absolute;right:14px;top:14px;color:var(--azure)}
 .dl-mapsearch-res{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-lg);padding:6px;max-height:320px;overflow-y:auto;z-index:1001}
 .dl-map-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:12px}
