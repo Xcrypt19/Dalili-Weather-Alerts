@@ -1450,7 +1450,6 @@ function SettingsView({ me, updateMe, lang, setLang, t, onLogout, account }) {
   const th = me.thresholds || DEFAULT_THRESHOLDS;
   const [draft, setDraft] = useState(th);
   const [keyDraft, setKeyDraft] = useState(me.mapsKey || "");
-  const [epDraft, setEpDraft] = useState(me.smsEndpoint || "");
   useEffect(() => setDraft(th), [me.email]);
   const saveTh = () => updateMe({ thresholds: draft });
 
@@ -1506,29 +1505,6 @@ function SettingsView({ me, updateMe, lang, setLang, t, onLogout, account }) {
         <button className="dl-btn" style={{ marginTop: 12 }} onClick={saveTh}><Check size={15} /> {t.save}</button>
       </div>
 
-      <div className="dl-card">
-        <div className="dl-card-head"><MapIcon size={18} /> <h3>{lang === "sw" ? "Ramani" : "Map"}</h3></div>
-        <p className="dl-muted" style={{ margin: 0 }}>{lang === "sw"
-          ? "Ramani hai inatumia OpenStreetMap — bila ufunguo, bila malipo. Hakuna cha kusanidi."
-          : "The live map uses OpenStreetMap — no API key and no billing required. Nothing to configure."}</p>
-      </div>
-
-      <div className="dl-card">
-        <div className="dl-card-head"><Send size={16} /> <h3>{lang === "sw" ? "Seva ya SMS" : "SMS backend"}</h3></div>
-        <p className="dl-muted">{lang === "sw"
-          ? "URL ya kazi yako ya Africa's Talking (Django/serverless). Bila hii, SMS huigwa."
-          : "URL of your Africa's Talking send function (Django/serverless). Without it, SMS is simulated."}</p>
-        <div className="dl-addrow">
-          <Field icon={Send} value={epDraft} placeholder="https://api.yourbackend.com/sms" onChange={(e) => setEpDraft(e.target.value)} />
-          <button className="dl-btn" onClick={() => updateMe({ smsEndpoint: epDraft.trim() })}><Check size={16} /> {t.save}</button>
-        </div>
-      </div>
-
-      <div className="dl-card dl-about">
-        <div className="dl-card-head"><Info size={16} /> <h3>{t.about}</h3></div>
-        <p>Dalili — {lang === "sw" ? "tahadhari za hali ya hewa za eneo lako kwa Kenya" : "hyperlocal weather alerts for Kenya"}. BAC-2202.</p>
-        <p className="dl-muted sm">{lang === "sw" ? "Data hai: Open-Meteo. Ramani: OpenStreetMap. SMS: Africa's Talking." : "Live data: Open-Meteo. Maps: OpenStreetMap. SMS: Africa's Talking."}</p>
-      </div>
     </div>
   );
 }
@@ -2247,6 +2223,7 @@ function StyleTag() {
 :root[data-theme="dark"] .dl-adv.tone-good .dl-adv-ic{background:rgba(23,154,78,.18)}
 :root[data-theme="dark"] .dl-adv.tone-caution .dl-adv-ic{background:rgba(245,158,11,.18)}
 :root[data-theme="dark"] .dl-adv.tone-alert .dl-adv-ic{background:rgba(239,68,68,.18)}
+:root[data-theme="dark"] .dl-auth-card,:root[data-theme="dark"] .dl-onboard-card{background:rgba(16,28,44,.97);border-color:rgba(255,255,255,.14)}
 
 *{box-sizing:border-box}
 .dl-root,.dl-auth,.dl-onboard{font-family:var(--ui);color:var(--ink);-webkit-font-smoothing:antialiased}
@@ -2678,7 +2655,7 @@ h1,h2,h3,h4{font-family:var(--display);letter-spacing:-.01em;line-height:1.12}
 .dl-auth-sky,.dl-onboard-sky{position:absolute;inset:0;overflow:hidden}
 .dl-auth-sky .dl-sun-core,.dl-onboard-sky .dl-sun-core{position:absolute;top:8%;left:10%;width:80px;height:80px;border-radius:50%;background:radial-gradient(circle,#FFF1C2,var(--sun) 70%);box-shadow:0 0 60px rgba(253,184,19,.7)}
 .dl-auth-sky .dl-sun-glow,.dl-onboard-sky .dl-sun-glow{position:absolute;top:4%;left:6%;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(253,184,19,.45),transparent 68%);animation:pulse 5s ease-in-out infinite}
-.dl-auth-card,.dl-onboard-card{position:relative;z-index:2;width:100%;max-width:420px;background:rgba(255,255,255,.94);backdrop-filter:blur(16px);
+.dl-auth-card,.dl-onboard-card{position:relative;z-index:2;width:100%;max-width:420px;background:rgba(255,255,255,.985);backdrop-filter:blur(16px);
   border:1px solid rgba(255,255,255,.6);border-radius:var(--r-lg);padding:clamp(24px,4vw,34px);box-shadow:0 24px 70px rgba(2,90,150,.32)}
 .dl-auth-h{font-size:clamp(22px,4vw,27px);margin-top:18px}
 .dl-auth-sub{color:var(--ink-soft);font-size:13.5px;margin-top:6px}
