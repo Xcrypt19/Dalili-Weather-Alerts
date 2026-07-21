@@ -1585,7 +1585,6 @@ function AuthScreen({ lang, setLang, accounts, onRegister, onLogin }) {
       <div className="dl-auth-card">
         <Brand />
         <h1 className="dl-auth-h">{mode === "register" ? (S ? "Fungua akaunti" : "Create your account") : (S ? "Karibu tena" : "Welcome back")}</h1>
-        <p className="dl-auth-sub">{S ? "Hifadhi maeneo, viwango na nambari zako za SMS." : "Save your places, thresholds and SMS numbers."}</p>
 
         <div className="dl-auth-fields">
           {mode === "register" && <Field icon={User} value={name} placeholder={S ? "Jina kamili" : "Full name"} onChange={(e) => setName(e.target.value)} />}
